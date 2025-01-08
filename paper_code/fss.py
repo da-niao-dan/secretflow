@@ -72,12 +72,12 @@ def flip(zero_or_one: int):
     return 1 - zero_or_one
 
 
-def DCF_gen(lamb: int, alpha: jnp.uint64, key: int = 1212):
+def DCF_gen(alpha: jnp.uint64, key: int = 1212):
     """Distributed Comparison Function generation
     outputs 1 if x < α and 0 otherwise.
     Assuming two party xor share everything
     """
-    lamb_type = jnp.uint64 if lamb == 64 else jnp.uint32
+    lamb_type = jnp.uint64
     alpha_bits = bit_decompose(alpha)
     random_key = jax.random.key(key)
     random_key, new_random_key = jax.random.split(random_key, 2)
@@ -174,7 +174,7 @@ def DCF_eval(b: int, kb: List, x: jnp.uint64):
 
 if __name__ == '__main__':
     # generate key for function <= 10 return 1, else 0
-    k0, k1 = DCF_gen(64, 10, 123)
+    k0, k1 = DCF_gen(10, 123)
 
     eval0, c0 = DCF_eval(0, k0, 1000)
     eval1, c1 = DCF_eval(1, k1, 1000)
