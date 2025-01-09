@@ -144,6 +144,7 @@ def corr(k, m, dev1, key1, dev2, key2, return_zero_sharing=False):
     """
     assert k == 64, "Only support k = 64 for now"
     dtype = jnp.uint64
+
     corr_dev1 = dev1(
         lambda key, shape, dtype: dtype(
             jax.random.bits(bytes_to_jax_random_key(key), shape)
