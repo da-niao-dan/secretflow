@@ -1,3 +1,5 @@
+from typing import Tuple
+
 import jax
 import jax.numpy as jnp
 from utils import (
@@ -5,6 +7,7 @@ from utils import (
     Handles,
     Params,
     corr,
+    corr_rand_distribute,
     decrypt_to_jnp_array_gcm,
     encrypt_jnp_array_gcm,
     gen_handles,
@@ -18,36 +21,22 @@ jax.config.update("jax_enable_x64", True)
 
 
 def cos_sim(
-    u_i, u_j, devices: Devices, handles: Handles, params: Params, verbose=False
+    u_i,
+    u_j,
+    devices: Devices,
+    handles: Handles,
+    params: Params,
+    abc_info: Tuple[DeviceObject],
+    verbose=False,
 ) -> DeviceObject:
     # programming details not related to protocol
     if verbose:
         print("input: ", sf.reveal(u_i), sf.reveal(u_j))
 
     params.fxp_type = jnp.uint64
-    shape_ref_i = devices.edge_tee_i(lambda x: x.shape)(u_i.to(devices.edge_tee_i))
-    shape_ref_j = devices.edge_tee_j(lambda x: x.shape)(u_j.to(devices.edge_tee_j))
-    # let's suppose that the reference type and shape are the same for u_i and u_j and it is ok to share to server
-    shape_ref_server = shape_ref_i.to(devices.server_tee)
 
-    # preprocessing
-    server_a, edge_tee_i_a = corr(
-        params.k,
-        params.m,
-        devices.server_tee,
-        handles.server_i_s,
-        devices.edge_tee_i,
-        handles.i_s,
-    )
-    server_b, edge_tee_j_b = corr(
-        params.k,
-        params.m,
-        devices.server_tee,
-        handles.server_j_s,
-        devices.edge_tee_j,
-        handles.j_s,
-    )
-    c = devices.server_tee(lambda a, b: a * b)(server_a, server_b)
+    server_a, server_b, c, edge_tee_i_a, edge_tee_j_b = abc_info
+
     if verbose:
         print()
         print("preprocessing: ")
@@ -86,18 +75,12 @@ def cos_sim(
         print("a: ", sf.reveal(edge_tee_i_a))
         print("e = u_i_normalized - a: ", sf.reveal(e))
 
-    c_e, c_e_tag, c_e_nouce = devices.edge_tee_i(encrypt_jnp_array_gcm, num_returns=3)(
-        e, handles.i_j
-    )
+    c_e = devices.edge_tee_i(encrypt_jnp_array_gcm)(e, handles.i_j)
     c_e_j = c_e.to(devices.edge_device_i).to(devices.edge_device_j)
-    c_e_tag_j = c_e_tag.to(devices.edge_device_i).to(devices.edge_device_j)
-    c_e_nouce_j = c_e_nouce.to(devices.edge_device_i).to(devices.edge_device_j)
 
     # E_j encrypts f = u_j_normalized - b, sends to P_i via P_j
     f = devices.edge_tee_j(lambda x, y: x - y)(u_j_normalized, edge_tee_j_b)
-    c_f, c_f_tag, c_f_nouce = devices.edge_tee_j(encrypt_jnp_array_gcm, num_returns=3)(
-        f, handles.j_i
-    )
+    c_f = devices.edge_tee_j(encrypt_jnp_array_gcm)(f, handles.j_i)
 
     if verbose:
         print()
@@ -107,18 +90,11 @@ def cos_sim(
         print("f = u_j_normalized - b: ", sf.reveal(f))
 
     c_f_i = c_f.to(devices.edge_device_j).to(devices.edge_device_i)
-    c_f_tag_i = c_f_tag.to(devices.edge_device_j).to(devices.edge_device_i)
-    c_f_nouce_i = c_f_nouce.to(devices.edge_device_j).to(devices.edge_device_i)
 
     # P_i decrypts f in E_i
     try:
         f_dec = devices.edge_tee_i(decrypt_to_jnp_array_gcm)(
-            c_f_i.to(devices.edge_tee_i),
-            c_f_tag_i.to(devices.edge_tee_i),
-            c_f_nouce_i.to(devices.edge_tee_i),
-            handles.i_j,
-            params.fxp_type,
-            shape_ref_i,
+            c_f_i.to(devices.edge_tee_i), handles.i_j
         )
         sf.wait(f_dec)
     except:
@@ -128,11 +104,7 @@ def cos_sim(
     try:
         e_dec = devices.edge_tee_j(decrypt_to_jnp_array_gcm)(
             c_e_j.to(devices.edge_tee_j),
-            c_e_tag_j.to(devices.edge_tee_j),
-            c_e_nouce_j.to(devices.edge_tee_j),
             handles.j_i,
-            params.fxp_type,
-            shape_ref_j,
         )
         sf.wait(e_dec)
     except:
@@ -199,16 +171,8 @@ def cos_sim(
         print("z_bracket_0", sf.reveal(z_bracket_0))
 
     # E_i encrypts z_bracket_0, sends to server tee via server
-    c_z_bracket_0, c_z_bracket_0_tag, c_z_bracket_0_nouce = devices.edge_tee_i(
-        encrypt_jnp_array_gcm, num_returns=3
-    )(z_bracket_0, handles.i_s)
+    c_z_bracket_0 = devices.edge_tee_i(encrypt_jnp_array_gcm)(z_bracket_0, handles.i_s)
     c_z_bracket_0_server = c_z_bracket_0.to(devices.server_device).to(
-        devices.server_tee
-    )
-    c_z_bracket_0_tag_server = c_z_bracket_0_tag.to(devices.server_device).to(
-        devices.server_tee
-    )
-    c_z_bracket_0_nouce_server = c_z_bracket_0_nouce.to(devices.server_device).to(
         devices.server_tee
     )
 
@@ -220,16 +184,10 @@ def cos_sim(
     )(e_dec, edge_tee_j_b_1, f, edge_tee_j_a_1, edge_tee_j_d)
 
     # E_j encrypts z_bracket_1, sends to server tee via server
-    c_z_bracket_1, c_z_bracket_1_tag, c_z_bracket_1_nouce = devices.edge_tee_j(
-        encrypt_jnp_array_gcm, num_returns=3
+    c_z_bracket_1 = devices.edge_tee_j(
+        encrypt_jnp_array_gcm,
     )(z_bracket_1, handles.j_s)
     c_z_bracket_1_server = c_z_bracket_1.to(devices.server_device).to(
-        devices.server_tee
-    )
-    c_z_bracket_1_tag_server = c_z_bracket_1_tag.to(devices.server_device).to(
-        devices.server_tee
-    )
-    c_z_bracket_1_nouce_server = c_z_bracket_1_nouce.to(devices.server_device).to(
         devices.server_tee
     )
 
@@ -245,19 +203,11 @@ def cos_sim(
     try:
         z_bracket_0_dec = devices.server_tee(decrypt_to_jnp_array_gcm)(
             c_z_bracket_0_server,
-            c_z_bracket_0_tag_server,
-            c_z_bracket_0_nouce_server,
-            handles.server_i_s,
-            params.fxp_type,
-            shape_ref_server,
+            handles.s_i,
         )
         z_bracket_1_dec = devices.server_tee(decrypt_to_jnp_array_gcm)(
             c_z_bracket_1_server,
-            c_z_bracket_1_tag_server,
-            c_z_bracket_1_nouce_server,
-            handles.server_j_s,
-            params.fxp_type,
-            shape_ref_server,
+            handles.s_j,
         )
         sf.wait([z_bracket_0_dec, z_bracket_1_dec])
     except:
@@ -323,8 +273,10 @@ def main():
     )
     handles = gen_handles(devices, params)
     u_i, u_j = simulate_data_u(devices, u_low, u_high, params.m)
-
-    print(sf.reveal(cos_sim(u_i, u_j, devices, handles, params, verbose=True)))
+    abc_info = corr_rand_distribute(devices, handles, params)
+    print(
+        sf.reveal(cos_sim(u_i, u_j, devices, handles, params, abc_info, verbose=True))
+    )
 
 
 if __name__ == '__main__':

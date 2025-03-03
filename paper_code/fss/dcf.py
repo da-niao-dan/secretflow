@@ -1,4 +1,5 @@
 # This file implements FSS functions described in fig1 of https://eprint.iacr.org/2020/1392.pdf#page=11.15
+# https://www.youtube.com/watch?v=Zm-MUVve2_w
 from typing import List
 
 import jax
@@ -115,9 +116,9 @@ def DCF_gen(alpha: jnp.uint64, random_key=jax.random.key(1212)):
         bCW_R = b0_R ^ b1_R ^ alpha_bits[i]
         cCW_L = c0_L ^ c1_L ^ alpha_bits[i]
         cCW_R = c0_R ^ c1_R
-        CW = (sCW, bCW_L, bCW_R, cCW_L, cCW_R)
+        CW = [sCW, bCW_L, bCW_R, cCW_L, cCW_R]
 
-        CWs.append(CW)
+        CWs.extend(CW)
 
         if alpha_bits[i] == 0:
             bCW_Keep = bCW_L
@@ -129,7 +130,7 @@ def DCF_gen(alpha: jnp.uint64, random_key=jax.random.key(1212)):
         s1_last = jnp.bitwise_xor(s1_Keep, b1_last * sCW)
         b1_last = b1_Keep ^ (b1_last * bCW_Keep)
 
-    CWs.append(CW)
+    CWs.extend(CW)
     k0 = [s0_0] + CWs
     k1 = [s1_0] + CWs
     return (k0, k1)
@@ -150,7 +151,9 @@ def DCF_eval(b: int, kb: List, x: jnp.uint64):
     c = 0
 
     for i in range(GROUP_BIT_NUM):
-        (sCW, bCW_L, bCW_R, cCW_L, cCW_R) = CWs[i]
+        start = i * 5
+        end = start + 5
+        (sCW, bCW_L, bCW_R, cCW_L, cCW_R) = CWs[start:end]
         s_hat_L, b_hat_L, c_hat_L, s_hat_R, b_hat_R, c_hat_R = G(s)
         s_L = jnp.bitwise_xor(s_hat_L, b_last * sCW)
         b_L = b_hat_L ^ (b_last * bCW_L)
@@ -168,36 +171,36 @@ def DCF_eval(b: int, kb: List, x: jnp.uint64):
             b_last = b_R
             c ^= c_R
 
-    return b_last, c
+    return (b_last + c) % 2
 
 
 if __name__ == '__main__':
     # generate key for function <= 10 return 1, else 0
     k0, k1 = DCF_gen(10)
 
-    eval0, c0 = DCF_eval(0, k0, 1000)
-    eval1, c1 = DCF_eval(1, k1, 1000)
+    eval0 = DCF_eval(0, k0, 1000)
+    eval1 = DCF_eval(1, k1, 1000)
 
-    result = (eval0 ^ eval1) + (c0 ^ c1)
+    result = eval0 ^ eval1
     assert result == 0, f"eval0 xor eval1 != 0,{result}"
 
-    eval0, c0 = DCF_eval(0, k0, 10)
-    eval1, c1 = DCF_eval(1, k1, 10)
+    eval0 = DCF_eval(0, k0, 10)
+    eval1 = DCF_eval(1, k1, 10)
 
-    result = (eval0 ^ eval1) + (c0 ^ c1)
+    result = eval0 ^ eval1
     assert result == 1, f"eval0 xor eval1 != 1,{result}"
 
-    eval0, c0 = DCF_eval(0, k0, 11)
-    eval1, c1 = DCF_eval(1, k1, 11)
+    eval0 = DCF_eval(0, k0, 11)
+    eval1 = DCF_eval(1, k1, 11)
 
-    result = (eval0 ^ eval1) + (c0 ^ c1)
+    result = eval0 ^ eval1
     assert result == 0, f"eval0 xor eval1 != 0,{result}"
 
     # performance_test
     import time
 
     start_time = time.time()
-    eval0, c0 = DCF_eval(0, k0, 11)
+    eval0 = DCF_eval(0, k0, 11)
     end_time = time.time()
 
     # Calculate elapsed time

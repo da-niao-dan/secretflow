@@ -27,11 +27,17 @@ class Devices:
 
 @dataclass
 class Handles:
-    server_i_s: DeviceObject = None
-    server_j_s: DeviceObject = None
+    # handles at server, key with i
+    s_i: DeviceObject = None
+    # handles at server, key with j
+    s_j: DeviceObject = None
+    # handles at i
     i_s: DeviceObject = None
+    # handles at j
     j_s: DeviceObject = None
+    # handles at j
     j_i: DeviceObject = None
+    # handles at i
     i_j: DeviceObject = None
 
 
@@ -44,6 +50,8 @@ class Params:
     k: int
     # m is the size of array in cos computation
     m: int
+    eps: float  # epsilon for closeness
+    min_points: int
 
 
 def bytes_to_jax_random_key(byte_key):
@@ -55,8 +63,40 @@ def bytes_to_jax_random_key(byte_key):
     return jax_key
 
 
+def corr_rand_distribute(devices: Devices, handles: Handles, params: Params):
+    # preprocessing
+    server_a, edge_tee_i_a = corr(
+        params.k,
+        params.m,
+        devices.server_tee,
+        handles.server_i_s,
+        devices.edge_tee_i,
+        handles.i_s,
+    )
+    server_b, edge_tee_j_b = corr(
+        params.k,
+        params.m,
+        devices.server_tee,
+        handles.server_j_s,
+        devices.edge_tee_j,
+        handles.j_s,
+    )
+    c = devices.server_tee(lambda a, b: a * b)(server_a, server_b)
+    return server_a, server_b, c, edge_tee_i_a, edge_tee_j_b
+
+
+@dataclass
+class EncryptedData:
+    ciphertext: bytes
+    tag: bytes
+    nonce: bytes
+    # for jnp arr encrypted data
+    dtype: jnp.dtype = None
+    shape: Tuple[int, ...] = None
+
+
 # Function to encrypt a jnp array using AES-GCM
-def encrypt_jnp_array_gcm(jnp_array, key) -> Tuple[bytes, bytes, bytes]:
+def encrypt_jnp_array_gcm(jnp_array, key) -> EncryptedData:
 
     # Convert numpy array to bytes
     array_bytes = jnp_array.tobytes()
@@ -68,21 +108,76 @@ def encrypt_jnp_array_gcm(jnp_array, key) -> Tuple[bytes, bytes, bytes]:
     ciphertext, tag = cipher.encrypt_and_digest(array_bytes)
 
     # Return the ciphertext, tag, and nonce
-    return ciphertext, tag, cipher.nonce
+    return EncryptedData(
+        ciphertext, tag, cipher.nonce, jnp_array.dtype, jnp_array.shape
+    )
 
 
 # Function to decrypt a jnp array using AES-GCM
-def decrypt_to_jnp_array_gcm(ciphertext, tag, nonce, key, dtype, shape):
+def decrypt_to_jnp_array_gcm(encrypted_data: EncryptedData, key):
+    # Create AES cipher in GCM mode with the same parameters
+    cipher = AES.new(key, AES.MODE_GCM, nonce=encrypted_data.nonce)
+
+    # Decrypt data
+    decrypted_data = cipher.decrypt_and_verify(
+        encrypted_data.ciphertext, encrypted_data.tag
+    )
+
+    # Convert bytes back to numpy array
+    decrypted_jnp_array = jnp.frombuffer(
+        decrypted_data, dtype=encrypted_data.dtype
+    ).reshape(encrypted_data.shape)
+
+    return decrypted_jnp_array
+
+
+# Function to encrypt a jnp array using AES-GCM
+def encrypt_gcm(bytes, key) -> EncryptedData:
+    # Create AES cipher in GCM mode
+    cipher = AES.new(key, AES.MODE_GCM)
+
+    # Encrypt data
+    ciphertext, tag = cipher.encrypt_and_digest(bytes)
+
+    # Return the ciphertext, tag, and nonce
+    return EncryptedData(ciphertext, tag, cipher.nonce)
+
+
+# Function to decrypt a jnp array using AES-GCM
+def decrypt_gcm(encrypted_data: EncryptedData, key):
     # Create AES cipher in GCM mode with the same parameters
     cipher = AES.new(key, AES.MODE_GCM, nonce=nonce)
 
     # Decrypt data
-    decrypted_data = cipher.decrypt_and_verify(ciphertext, tag)
+    decrypted_data = cipher.decrypt_and_verify(
+        encrypted_data.ciphertext, encrypted_data.tag
+    )
+    return decrypted_data
 
-    # Convert bytes back to numpy array
-    decrypted_jnp_array = jnp.frombuffer(decrypted_data, dtype=dtype).reshape(shape)
 
-    return decrypted_jnp_array
+def to_bytes(input_list):
+    byte_list = []
+    for item in input_list:
+        if isinstance(item, jnp.ndarray):
+            # Flatten the array and convert to bytes
+            byte_list.append(item.tobytes())
+        elif isinstance(item, int):
+            # Convert integer (0 or 1) to byte
+            byte_list.append(item.to_bytes(1, byteorder='big'))
+    return byte_list
+
+
+def from_bytes(byte_list):
+    original_list = []
+    for byte_data in byte_list:
+        if isinstance(byte_data, bytes):
+            if len(byte_data) == 1:
+                # It's a single byte integer, convert back to int
+                original_list.append(int.from_bytes(byte_data, byteorder='big'))
+            else:
+                jnp_array = jnp.frombuffer(byte_data, dtype=jnp.uint64)
+                original_list.append(jnp_array)
+    return original_list
 
 
 def devices_enable_x64(devices: Devices):
@@ -163,6 +258,14 @@ def corr(k, m, dev1, key1, dev2, key2, return_zero_sharing=False):
             )
         )(key2, (m,), dtype)
     return corr_dev1, corr_dev2
+
+
+def make_random_shares(rng: jax.random.PRNGKey, dtype=jnp.uint64):
+    """
+    Generate random shares of a given shape and dtype.
+    """
+    rng1, rng2 = jax.random.split(rng, 2)
+    return jax.random.bits(rng1, dtype), jax.random.bits(rng2, dtype)
 
 
 # Example usage
