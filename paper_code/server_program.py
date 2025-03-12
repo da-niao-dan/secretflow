@@ -4,7 +4,7 @@ from typing import List
 import jax
 import jax.numpy as jnp
 import numpy as np
-from fss.drelu import DReLU_eval, DReLU_gen, bytes_to_key, key_to_bytes
+from fss.drelu import DReLU_eval, DReLU_gen
 from sklearn.cluster import DBSCAN
 from utils import (
     Devices,
@@ -12,9 +12,7 @@ from utils import (
     Params,
     corr,
     corr_rand_distribute,
-    decrypt_gcm,
     decrypt_to_jnp_array_gcm,
-    encrypt_gcm,
     encrypt_jnp_array_gcm,
     gen_handles,
     make_random_shares,
@@ -32,7 +30,8 @@ def initialization():
 
 def preprocessing(
     rng: jax.random.PRNGKey,
-    handles: Handles,
+    handle_s_i,
+    handle_s_j,
 ):
 
     r0, r1 = make_random_shares(rng)
@@ -41,8 +40,8 @@ def preprocessing(
     fkey_i_with_r0 = fkey_i + [r0]
     fkey_j_with_r1 = fkey_j + [r1]
 
-    c_i = encrypt_gcm(key_to_bytes(fkey_i_with_r0), handles.s_i)
-    c_j = encrypt_gcm(key_to_bytes(fkey_j_with_r1), handles.s_j)
+    c_i = encrypt_jnp_array_gcm(jnp.array(fkey_i_with_r0), handle_s_i)
+    c_j = encrypt_jnp_array_gcm(jnp.array(fkey_j_with_r1), handle_s_j)
     return c_i, c_j
 
 
@@ -117,19 +116,34 @@ def index_encode(valid_indices, server_tee, handle_s_h):
 # Median index determination of euclidean distances
 
 
-def reconstruct_zij(c_zij_i, c_zij_j, devices: Devices, handles: Handles):
-    zij_i = devices.server_tee(
-        lambda c, gcm_key: decrypt_to_jnp_array_gcm(c, gcm_key), num_returns=1
-    )(c_zij_i, handles.s_i)
-    zij_j = devices.server_tee(
-        lambda c, gcm_key: decrypt_to_jnp_array_gcm(c, gcm_key), num_returns=1
-    )(c_zij_j, handles.s_j)
-    zij = devices.server_tee(lambda x, y: jnp.bitwise_xor(x, y))(zij_i, zij_j)
-    return zij
+def reconstruct_zij(
+    c_zij_i,
+    c_zij_j,
+    handle_s_i,
+    handle_s_j,
+    fxp,
+):
+    zij_i = decrypt_to_jnp_array_gcm(c_zij_i, handle_s_i)
+    zij_j = decrypt_to_jnp_array_gcm(c_zij_j, handle_s_j)
+    zij = jnp.bitwise_xor(zij_i, zij_j)
+
+    return zij / (2.0**fxp)
 
 
 def median_and_index(zij_list, server_tee):
-    median = server_tee(lambda x: jnp.median(x))(zij_list)
+    median = server_tee(lambda x: jnp.median(jnp.array(x)))(zij_list)
+    from secretflow import reveal
+
+    median_revealed = reveal(median)
+    print("revealed median", median_revealed)
+    zij_list_revealed = reveal(zij_list)
+    final = jnp.where(zij_list_revealed == median_revealed)
+    print(
+        "revealed median, z, and final anster",
+        median_revealed,
+        zij_list_revealed,
+        final,
+    )
     median_index = server_tee(lambda z: jnp.where(z == median)[0][0], num_returns=1)(
         zij_list
     )

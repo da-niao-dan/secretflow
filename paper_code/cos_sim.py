@@ -80,6 +80,9 @@ def cos_sim(
 
     # E_j encrypts f = u_j_normalized - b, sends to P_i via P_j
     f = devices.edge_tee_j(lambda x, y: x - y)(u_j_normalized, edge_tee_j_b)
+    if verbose:
+        print("step 2, f:")
+        print("f dtype", sf.reveal(f).dtype)
     c_f = devices.edge_tee_j(encrypt_jnp_array_gcm)(f, handles.j_i)
 
     if verbose:
@@ -136,7 +139,6 @@ def cos_sim(
         True,
     )
 
-    # lots of question here
     edge_tee_i_a_0 = devices.edge_tee_i(lambda x, y: params.fxp_type(x - y))(
         edge_tee_i_a, edge_tee_i_a_1
     )
@@ -255,7 +257,9 @@ def main():
 
     server_device = sf.PYU(server_party_name)
     server_tee = sf.PYU(server_party_name)
-    params = Params(fxp=26, fxp_type=jnp.uint64, kappa=32, k=64, m=100)
+    params = Params(
+        fxp=26, fxp_type=jnp.uint64, kappa=32, k=64, m=100, eps=10e-5, min_points=3
+    )
 
     # custom parameters
     i = 0

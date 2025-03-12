@@ -56,12 +56,12 @@ def key_gen(
 ):
     """Generatie FSS keys for each pair of edge devices"""
     device_FKeys = {}
-    for i, j in device_panel.enumerate_pairs:
+    for i, j in device_panel.enumerate_pairs():
         devices = device_panel.build_devices(i, j)
         handles = handle_panel.build_handles(i, j)
         random_key_use, random_key = jax.random.split(random_key, 2)
         c_i, c_j = device_panel.server_tee(preprocessing, num_returns=2)(
-            random_key_use, handles
+            random_key_use, handles.s_i, handles.s_j
         )
         # give keys to devices
         device_FKeys[(i, j)] = (
@@ -76,7 +76,7 @@ def corr_rand_distr_pairwise(
     device_panel: DevicePanel, handle_panel: HandlePanel, params: Params
 ):
     abs_pairs = {}
-    for i, j in device_panel.enumerate_pairs:
+    for i, j in device_panel.enumerate_pairs():
         devices = device_panel.build_devices(i, j)
         handles = handle_panel.build_handles(i, j)
         server_a, server_b, c, edge_tee_i_a, edge_tee_j_b = corr_rand_distribute(
@@ -88,17 +88,22 @@ def corr_rand_distr_pairwise(
 
 def cos_sim_pairwise(
     u_i_list_tee: List[DeviceObject],
-    abc_info: Dict[Tuple],
+    abc_info: Dict[Tuple, Tuple[DeviceObject]],
     device_panel: DevicePanel,
     handle_panel: HandlePanel,
     params: Params,
 ):
     cos_sim_pairs = []
-    for i, j in device_panel.enumerate_pairs:
+    for i, j in device_panel.enumerate_pairs():
         devices = device_panel.build_devices(i, j)
         handles = handle_panel.build_handles(i, j)
         cos_sim_i_j = cos_sim(
-            u_i_list_tee[i], u_i_list_tee[j], devices, handles, params, abc_info
+            u_i_list_tee[i],
+            u_i_list_tee[j],
+            devices,
+            handles,
+            params,
+            abc_info.get((i, j)),
         )
         # cos_sim_i_j is at server tee
         cos_sim_pairs.append(cos_sim_i_j)
@@ -107,42 +112,45 @@ def cos_sim_pairwise(
 
 def euclidean_norm_pairwise(
     u_i_list_tee: List[DeviceObject],
-    device_FKeys: Dict[Tuple],
+    device_FKeys: Dict[Tuple, Tuple],
     device_panel: DevicePanel,
     handle_panel: HandlePanel,
     params: Params,
 ) -> Dict[Tuple, Tuple[DeviceObject, DeviceObject]]:
+    # use fixed point encoding
     norm_i_list_tee = [
-        u_i.device(lambda x: jnp.linalg.norm(x))(u_i) for u_i in u_i_list_tee
+        u_i.device(lambda x: params.fxp_type(jnp.linalg.norm(x) * (2.0**params.fxp)))(
+            u_i
+        )
+        for u_i in u_i_list_tee
     ]
     c_zij_dict = {}
-    for i, j in device_panel.enumerate_pairs:
+    for i, j in device_panel.enumerate_pairs():
         devices = device_panel.build_devices(i, j)
         handles = handle_panel.build_handles(i, j)
 
         c_i, c_j = device_FKeys[(i, j)]
         key_i, r_i = devices.edge_tee_i(key_unpack, num_returns=2)(c_i, handles.i_s)
         key_j, r_j = devices.edge_tee_j(key_unpack, num_returns=2)(c_j, handles.j_s)
-        c_normij_i = encode_c_Lij_i(
-            norm_i_list_tee[i], r_i, devices.edge_device_i, handles.i_j
+        c_normij_i = devices.edge_device_i(encode_c_Lij_i)(
+            norm_i_list_tee[i], r_i, handles.i_j
         )
-        c_normij_j = encode_c_Lij_i(
-            norm_i_list_tee[j], r_j, devices.edge_device_j, handles.j_i
+        # checkout Fig 4:  Program installed by client P𝑖
+        c_normij_j = devices.edge_device_j(encode_c_Lij_i)(
+            norm_i_list_tee[j], r_j, handles.j_i, True
         )
 
-        norm_ij_i = compute_Lij(
+        norm_ij_i = devices.edge_tee_i(compute_Lij)(
             c_normij_j.to(devices.server_device).to(devices.edge_tee_i),
             norm_i_list_tee[i],
-            devices.edge_device_i,
             handles.i_j,
         )
-        norm_ij_j = compute_Lij(
+        norm_ij_j = devices.edge_tee_j(compute_Lij)(
             c_normij_i.to(devices.server_device).to(devices.edge_tee_j),
             norm_i_list_tee[j],
-            devices.edge_device_j,
             handles.j_i,
         )
-
+        print("norm_ij_i dtype: ", sf.reveal(norm_ij_i).dtype, sf.reveal(norm_ij_i))
         zij_i = compute_zij_i(0, key_i, norm_ij_i, devices.edge_tee_i)
         zij_j = compute_zij_i(1, key_j, norm_ij_j, devices.edge_tee_j)
 
@@ -155,13 +163,14 @@ def euclidean_norm_pairwise(
             handles.j_i,
             return_zero_sharing=True,
         )
+
         c_zij_i = (
-            compute_c_zij_i(zij_i, b_i, devices, handles)
+            compute_c_zij_i(zij_i, b_i, devices.edge_tee_i, handles.i_s)
             .to(devices.edge_device_i)
             .to(devices.server_tee)
         )
         c_zij_j = (
-            compute_c_zij_i(zij_j, b_j, devices, handles)
+            compute_c_zij_i(zij_j, b_j, devices.edge_tee_j, handles.j_s)
             .to(devices.edge_device_j)
             .to(devices.server_tee)
         )
@@ -185,13 +194,18 @@ def reconstruct_zij_pairwise(
     device_panel: DevicePanel,
     handle_panel: HandlePanel,
     c_zij_dict: Dict[Tuple, Tuple[DeviceObject, DeviceObject]],
+    params: Params,
 ):
     zij_list = []
-    for i, j in device_panel.enumerate_pairs:
+    for i, j in device_panel.enumerate_pairs():
         devices = device_panel.build_devices(i, j)
         handles = handle_panel.build_handles(i, j)
         c_zij_i, c_zij_j = c_zij_dict[(i, j)]
-        zij_list.append(reconstruct_zij(c_zij_i, c_zij_j, devices, handles))
+        zij_list.append(
+            devices.server_tee(reconstruct_zij)(
+                c_zij_i, c_zij_j, handles.s_i, handles.s_j, params.fxp
+            )
+        )
     return zij_list
 
 
@@ -325,7 +339,7 @@ def single_round(
     device_FKeys = key_gen(device_panel, handle_panel, rng)
     abc_pairs = corr_rand_distr_pairwise(device_panel, handle_panel, params)
     # Local commitment
-    u_i_list_tee = [u_i.to(device_panel.get_tee[i]) for i, u_i in enumerate(u_i_list)]
+    u_i_list_tee = [u_i.to(device_panel.get_tee(i)) for i, u_i in enumerate(u_i_list)]
     # Cosine similarity computation with each P𝑗
     cos_sim_pairs = cos_sim_pairwise(
         u_i_list_tee, abc_pairs, device_panel, handle_panel, params
@@ -335,7 +349,7 @@ def single_round(
         u_i_list_tee, device_FKeys, device_panel, handle_panel, params
     )
     zij_list = reconstruct_zij_pairwise(
-        device_panel, handle_panel, euclidean_norm_pairs
+        device_panel, handle_panel, euclidean_norm_pairs, params
     )
     # Compute the final result
     median_server_tee, median_index_server_tee = median_and_index(
@@ -390,16 +404,31 @@ def single_round(
     return Mt, Mt_list
 
 
+# TODO: single round with pre-computed keys?
+def simulate_data_u(
+    device_panel: DevicePanel, u_low: float, u_high: float, m: int
+) -> Tuple[DeviceObject, DeviceObject]:
+    # P_i holds u_i
+    uis = [
+        device(lambda x: x)(jnp.array(np.random.uniform(u_low, u_high, (m,))))
+        for device in device_panel.client_devices
+    ]
+
+    return uis
+
+
 def main():
     device_panel, handle_pannel, params = sf_setup()
     rng_key = jax.random.PRNGKey(0)
     Mt = 0
-    for i in range(10):
+    for _ in range(10):
         # do training and get u_i_list
-        u_i_list = []
+        u_i_list = simulate_data_u(device_panel, -1.0, 1.0, params.m)
         # do clustering and get Mt
         Mt, Mt_list = single_round(
             device_panel, handle_pannel, params, u_i_list, rng_key, Mt
         )
-        # uodate grads
-        # do other things
+
+
+if __name__ == "__main__":
+    main()

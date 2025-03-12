@@ -69,7 +69,7 @@ def corr_rand_distribute(devices: Devices, handles: Handles, params: Params):
         params.k,
         params.m,
         devices.server_tee,
-        handles.server_i_s,
+        handles.s_i,
         devices.edge_tee_i,
         handles.i_s,
     )
@@ -77,7 +77,7 @@ def corr_rand_distribute(devices: Devices, handles: Handles, params: Params):
         params.k,
         params.m,
         devices.server_tee,
-        handles.server_j_s,
+        handles.s_j,
         devices.edge_tee_j,
         handles.j_s,
     )
@@ -146,38 +146,13 @@ def encrypt_gcm(bytes, key) -> EncryptedData:
 # Function to decrypt a jnp array using AES-GCM
 def decrypt_gcm(encrypted_data: EncryptedData, key):
     # Create AES cipher in GCM mode with the same parameters
-    cipher = AES.new(key, AES.MODE_GCM, nonce=nonce)
+    cipher = AES.new(key, AES.MODE_GCM, nonce=encrypted_data.nonce)
 
     # Decrypt data
     decrypted_data = cipher.decrypt_and_verify(
         encrypted_data.ciphertext, encrypted_data.tag
     )
     return decrypted_data
-
-
-def to_bytes(input_list):
-    byte_list = []
-    for item in input_list:
-        if isinstance(item, jnp.ndarray):
-            # Flatten the array and convert to bytes
-            byte_list.append(item.tobytes())
-        elif isinstance(item, int):
-            # Convert integer (0 or 1) to byte
-            byte_list.append(item.to_bytes(1, byteorder='big'))
-    return byte_list
-
-
-def from_bytes(byte_list):
-    original_list = []
-    for byte_data in byte_list:
-        if isinstance(byte_data, bytes):
-            if len(byte_data) == 1:
-                # It's a single byte integer, convert back to int
-                original_list.append(int.from_bytes(byte_data, byteorder='big'))
-            else:
-                jnp_array = jnp.frombuffer(byte_data, dtype=jnp.uint64)
-                original_list.append(jnp_array)
-    return original_list
 
 
 def devices_enable_x64(devices: Devices):
@@ -202,8 +177,8 @@ def gen_handles(devices: Devices, params: Params) -> Handles:
     handles.j_i = handles.i_j.to(devices.edge_tee_j)
     handles.j_s = devices.edge_tee_j(lambda x: get_random_bytes(x))(params.kappa)
 
-    handles.server_i_s = handles.i_s.to(devices.server_tee)
-    handles.server_j_s = handles.j_s.to(devices.server_tee)
+    handles.s_i = handles.i_s.to(devices.server_tee)
+    handles.s_j = handles.j_s.to(devices.server_tee)
     return handles
 
 
@@ -265,7 +240,7 @@ def make_random_shares(rng: jax.random.PRNGKey, dtype=jnp.uint64):
     Generate random shares of a given shape and dtype.
     """
     rng1, rng2 = jax.random.split(rng, 2)
-    return jax.random.bits(rng1, dtype), jax.random.bits(rng2, dtype)
+    return jax.random.bits(rng1, dtype=dtype), jax.random.bits(rng2, dtype=dtype)
 
 
 # Example usage
@@ -273,8 +248,8 @@ if __name__ == "__main__":
     # Generate a random key for AES-256 (32 bytes)
     key = get_random_bytes(32)
 
-    u_low = 0.0
-    u_high = 2.0
+    u_low = -1.0
+    u_high = 99.0
     m = 100
 
     # Create a jnp array
@@ -283,12 +258,10 @@ if __name__ == "__main__":
     )
 
     # Encrypt the jnp array using AES-GCM
-    ciphertext, tag, nonce = encrypt_jnp_array_gcm(original_jnp_array, key)
+    ciphertext = encrypt_jnp_array_gcm(original_jnp_array, key)
 
     # Decrypt to a jnp array
-    decrypted_jnp_array = decrypt_to_jnp_array_gcm(
-        ciphertext, tag, nonce, key, dtype=jnp.uint64, shape=original_jnp_array.shape
-    )
+    decrypted_jnp_array = decrypt_to_jnp_array_gcm(ciphertext, key)
 
     # Check if the original and decrypted arrays are the same
     print("Original JAX Array:")

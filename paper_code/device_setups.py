@@ -1,11 +1,20 @@
+from typing import List, Tuple
+
 import jax.numpy as jnp
 from utils import Devices, Handles, Params, get_random_bytes
 
 import secretflow as sf
+from secretflow import Device
 
 
 class DevicePanel:
-    def __init__(self, client_devices, server_device, client_tees, server_tee):
+    def __init__(
+        self,
+        client_devices: List[Device],
+        server_device: Device,
+        client_tees: List[Device],
+        server_tee: Device,
+    ):
         assert len(client_tees) == len(client_devices)
         self.client_devices = client_devices
         self.server_device = server_device
@@ -58,27 +67,29 @@ class DevicePanel:
 class HandlePanel:
     def __init__(self, device_panel: DevicePanel, kappa: int):
         self.handle_map = {}
+        self.client_num = device_panel.client_num
         for (i, j), (tee_i, tee_j) in zip(
             device_panel.enumerate_pairs(), device_panel.enumerate_tee_pairs()
         ):
             handle_i_j = tee_i(lambda x: get_random_bytes(x))(kappa)
             self.handle_map.update({(i, j): handle_i_j, (j, i): handle_i_j.to(tee_j)})
 
-        for client_tee in device_panel.client_tees:
+        for i, client_tee in enumerate(device_panel.client_tees):
             handle_i_s = client_tee(lambda x: get_random_bytes(x))(kappa)
             self.handle_map.update(
                 {(i, -1): handle_i_s, (-1, i): handle_i_s.to(device_panel.server_tee)}
             )
+        print("Handle map", self.handle_map)
 
     def get_handle(self, i, j):
         return self.handle_map[(i, j)]
 
     def get_server_handles(self):
-        return [self.get_handle(-1, i) for i in range(len(self.client_tees))]
+        return [self.get_handle(-1, i) for i in range(self.client_num)]
 
     def build_handles(self, i, j) -> Handles:
         return Handles(
-            self.get_handle(-1, j),
+            self.get_handle(-1, i),
             self.get_handle(-1, j),
             self.get_handle(i, -1),
             self.get_handle(j, -1),
@@ -112,7 +123,9 @@ def sf_setup(
 
     server_device = sf.PYU(server_party_name)
     server_tee = sf.PYU(server_party_name)
-    params = Params(fxp=fxp, fxp_type=fxp_type, kappa=kappa, k=k, m=m)
+    params = Params(
+        fxp=fxp, fxp_type=fxp_type, kappa=kappa, k=k, m=m, eps=10e-5, min_points=3
+    )
 
     device_panel = DevicePanel(edge_devices, server_device, edge_tees, server_tee)
     handle_panel = HandlePanel(device_panel, kappa)
