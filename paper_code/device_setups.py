@@ -79,6 +79,16 @@ class HandlePanel:
             self.handle_map.update(
                 {(i, -1): handle_i_s, (-1, i): handle_i_s.to(device_panel.server_tee)}
             )
+
+        # for some  strange encoding sent to oneself
+        for i in range(self.client_num):
+            self.handle_map.update(
+                {
+                    (i, i): device_panel.client_tees[i](lambda x: get_random_bytes(x))(
+                        kappa
+                    )
+                }
+            )
         print("Handle map", self.handle_map)
 
     def get_handle(self, i, j):
@@ -86,6 +96,9 @@ class HandlePanel:
 
     def get_server_handles(self):
         return [self.get_handle(-1, i) for i in range(self.client_num)]
+
+    def get_client_i_handles(self, i):
+        return [self.get_handle(i, j) for j in range(self.client_num)]
 
     def build_handles(self, i, j) -> Handles:
         return Handles(
@@ -124,7 +137,14 @@ def sf_setup(
     server_device = sf.PYU(server_party_name)
     server_tee = sf.PYU(server_party_name)
     params = Params(
-        fxp=fxp, fxp_type=fxp_type, kappa=kappa, k=k, m=m, eps=10e-5, min_points=3
+        fxp=fxp,
+        fxp_type=fxp_type,
+        kappa=kappa,
+        k=k,
+        m=m,
+        eps=10e-5,
+        min_points=max(int(edge_parties_number / 4), 1),
+        point_num_threshold=max(int(edge_parties_number / 2), 1),
     )
 
     device_panel = DevicePanel(edge_devices, server_device, edge_tees, server_tee)

@@ -5,7 +5,7 @@ import jax.numpy as jnp
 import numpy as np
 from client_program import (
     clipping,
-    compute_c_h,
+    compute_c_h_L,
     compute_c_Ut_i,
     compute_c_zij_i,
     compute_Lij,
@@ -16,7 +16,6 @@ from client_program import (
 )
 from cos_sim import cos_sim
 from device_setups import DevicePanel, HandlePanel, sf_setup
-from fss.drelu import DReLU_eval, DReLU_gen, bytes_to_key, key_to_bytes
 from server_program import (
     aggregation,
     index_encode,
@@ -27,7 +26,6 @@ from server_program import (
     reconstruct_zij,
     server_clustering,
 )
-from sklearn.cluster import DBSCAN
 from utils import (
     Devices,
     Handles,
@@ -150,13 +148,11 @@ def euclidean_norm_pairwise(
             norm_i_list_tee[j],
             handles.j_i,
         )
-        print("norm_ij_i dtype: ", sf.reveal(norm_ij_i).dtype, sf.reveal(norm_ij_i))
         zij_i = compute_zij_i(0, key_i, norm_ij_i, devices.edge_tee_i)
         zij_j = compute_zij_i(1, key_j, norm_ij_j, devices.edge_tee_j)
-
         b_i, b_j = corr(
             params.k,
-            params.m,
+            1,
             devices.edge_tee_i,
             handles.i_j,
             devices.edge_tee_j,
@@ -179,13 +175,13 @@ def euclidean_norm_pairwise(
 
 
 def valid_index_encode_devicewise(
-    devices_panel: DevicePanel, handle_panel: HandlePanel, index_list: DeviceObject
+    devices_panel: DevicePanel, handle_panel: HandlePanel, index_list: List
 ) -> List[DeviceObject]:
     index_list_at_clients = [
-        index_encode(index_list, devices_panel.server_tee, handle_s_h).to(tee)
-        for tee, handle_s_h in zip(
-            devices_panel.client_tees, handle_panel.get_server_handles
-        )
+        devices_panel.server_tee(index_encode)(index_list, handle_s_h).to(tee)
+        for tee, handle_s_h in [
+            *zip(devices_panel.client_tees, handle_panel.get_server_handles())
+        ]
     ]
     return index_list_at_clients
 
@@ -230,23 +226,28 @@ def receive_meta_info_and_clipping(
     valid_index_at_Emed = valid_index_at_clients[median_index].to(Emed)
     median_encoded_Emed = median_encoded_Pmed.to(Emed)
 
-    c_h_L = Emed(compute_c_h)(
+    # TODO: rewrite this
+    c_h_L = Emed(compute_c_h_L)(
         median_index,
+        device_panel.client_num,
         valid_index_at_Emed,
         median_encoded_Emed,
         handle_panel.get_handle(median_index, -1),
+        u_i_list[median_index],
+        handle_panel.get_client_i_handles(median_index),
     )
     c_h_L_server = c_h_L.to(Pmed).to(device_panel.server_tee)
     u_i_F_if_valid_list = []
     for i in range(device_panel.client_num):
-        accepted, chL_if_accepted = (
-            device_panel.server_device(package_information, num_returns=2)(
-                i, valid_indices, c_h_L_server
-            )
-            .to(device_panel.client_devices[i])
-            .to(device_panel.client_tees[i])
+        accepted, chL_if_accepted = device_panel.server_device(
+            package_information, num_returns=2
+        )(i, valid_indices, c_h_L_server)
+        accepted = accepted.to(device_panel.client_devices[i]).to(
+            device_panel.client_tees[i]
         )
-        handle_med_if_is = handle_panel.get_handle(i, -1) if i == median_index else None
+        chL_if_accepted = chL_if_accepted.to(device_panel.client_devices[i]).to(
+            device_panel.client_tees[i]
+        )
 
         u_i_F_if_valid = device_panel.client_tees[i](clipping)(
             i,
@@ -255,7 +256,7 @@ def receive_meta_info_and_clipping(
             chL_if_accepted,
             u_i_list[i],
             handle_panel.get_handle(i, -1),
-            handle_med_if_is,
+            handle_panel.get_handle(i, median_index),
         )
         u_i_F_if_valid_list.append(u_i_F_if_valid)
     return u_i_F_if_valid_list
@@ -267,7 +268,6 @@ def local_filtering_and_aggregation(
     handle_panel: HandlePanel,
     u_i_F_if_valid_list: List[DeviceObject],
     valid_indices: List[int],
-    sigma: float,
     rng_key: jax.random.PRNGKey,
     params: Params,
     M_old: DeviceObject,
@@ -277,7 +277,7 @@ def local_filtering_and_aggregation(
         if valid_indices[i] == 1:
             rng_key, use_rng_key = jax.random.split(rng_key)
             u_i_F_if_valid_list[i] = device_panel.client_tees[i](smallest_noise)(
-                i, u_i_F_if_valid_list[i], use_rng_key
+                u_i_F_if_valid_list[i], params.sigma, use_rng_key
             )
             for j in range(i, device_panel.client_num):
                 if valid_indices[j] == 1:
@@ -298,9 +298,13 @@ def local_filtering_and_aggregation(
     for i in range(device_panel.client_num):
         if valid_indices[i] == 1:
             c_Ut_i = (
-                compute_c_Ut_i(
-                    [r_dict[(i, j)] for j in range(0, i)],
-                    [r_dict[(i, j)] for j in range(i + 1, device_panel.client_num)],
+                device_panel.get_tee(i)(compute_c_Ut_i)(
+                    [r_dict[(i, j)] for j in range(0, i) if valid_indices[j] == 1],
+                    [
+                        r_dict[(i, j)]
+                        for j in range(i + 1, device_panel.client_num)
+                        if valid_indices[j] == 1
+                    ],
                     u_i_F_if_valid_list[i],
                     handle_panel.get_handle(i, -1),
                 )
@@ -352,8 +356,8 @@ def single_round(
         device_panel, handle_panel, euclidean_norm_pairs, params
     )
     # Compute the final result
-    median_server_tee, median_index_server_tee = median_and_index(
-        zij_list, device_panel.server_tee
+    median_index_server_tee = device_panel.server_tee(median_and_index)(
+        zij_list, [*range(device_panel.client_num)]
     )
     med_encoded = median_index_encode(
         median_index_server_tee,
@@ -363,15 +367,18 @@ def single_round(
     # everyone will know valid indices anyway
     valid_indices = sf.reveal(
         device_panel.server_tee(server_clustering)(
-            cos_sim_pairs, params.eps, params.min_points
+            device_panel.client_num,
+            cos_sim_pairs,
+            params.eps,
+            params.min_points,
+            params.point_num_threshold,
         )
     )
-    encoded_indices = index_encode(
-        valid_indices,
-        device_panel.server_tee,
-    )
+
+    assert len(valid_indices) == device_panel.client_num
+
     valid_index_at_clients = valid_index_encode_devicewise(
-        device_panel, handle_panel, encoded_indices
+        device_panel, handle_panel, valid_indices
     )
     u_i_F_if_valid_list = receive_meta_info_and_clipping(
         valid_index_at_clients,
@@ -381,17 +388,15 @@ def single_round(
         device_panel,
         handle_panel,
         params,
-        u_i_list,
+        u_i_list_tee,
     )
     Mt, c_Mt_list = local_filtering_and_aggregation(
         device_panel,
         handle_panel,
         u_i_F_if_valid_list,
         valid_indices,
-        params.sigma,
         rng,
         params,
-        device_panel.server_tee,
         M_old,
     )
     # each client decode Mt_i as output

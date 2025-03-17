@@ -4,7 +4,7 @@ from typing import List
 import jax
 import jax.numpy as jnp
 import numpy as np
-from fss.drelu import DReLU_eval, DReLU_gen
+from fss.drelu import DReLU_eval, DReLU_gen, reconstruct
 from sklearn.cluster import DBSCAN
 from utils import (
     Devices,
@@ -92,12 +92,11 @@ def server_clustering(
     db = DBSCAN(eps=epsilon, min_samples=minPts).fit(X)
     labels = db.labels_
     # return the index of labels > -1
-    outlier_pair_indices = np.where(labels == -1)[0]
     outlier_counter = np.zeros(n)
     i = 0
     for i in range(n):
         for j in range(i + 1, n):
-            if outlier_pair_indices[i] == -1:
+            if labels[i] == -1:
                 outlier_counter[i] += 1
                 outlier_counter[j] += 1
             i += 1
@@ -106,10 +105,8 @@ def server_clustering(
     return valid_indices.astype(np.int32)
 
 
-def index_encode(valid_indices, server_tee, handle_s_h):
-    c_I = server_tee(
-        lambda x, gcm_key: encrypt_jnp_array_gcm(x, gcm_key), num_returns=1
-    )(valid_indices, handle_s_h)
+def index_encode(valid_indices, handle_s_h):
+    c_I = encrypt_jnp_array_gcm(valid_indices, handle_s_h)
     return c_I
 
 
@@ -125,35 +122,41 @@ def reconstruct_zij(
 ):
     zij_i = decrypt_to_jnp_array_gcm(c_zij_i, handle_s_i)
     zij_j = decrypt_to_jnp_array_gcm(c_zij_j, handle_s_j)
-    zij = jnp.bitwise_xor(zij_i, zij_j)
+    zij = reconstruct(zij_i, zij_j)
 
-    return zij / (2.0**fxp)
+    return zij
 
 
-def median_and_index(zij_list, server_tee):
-    median = server_tee(lambda x: jnp.median(jnp.array(x)))(zij_list)
-    from secretflow import reveal
+def median_and_index(zij_list, index_list):
+    n = len(index_list)
 
-    median_revealed = reveal(median)
-    print("revealed median", median_revealed)
-    zij_list_revealed = reveal(zij_list)
-    final = jnp.where(zij_list_revealed == median_revealed)
-    print(
-        "revealed median, z, and final anster",
-        median_revealed,
-        zij_list_revealed,
-        final,
-    )
-    median_index = server_tee(lambda z: jnp.where(z == median)[0][0], num_returns=1)(
-        zij_list
-    )
-    return median, median_index
+    # Initialize the greater counter
+    greater_counter = [0] * n
+    c = 0
+
+    # Populate the greater counter based on zij_list
+    for i in range(n):
+        for _ in range(i + 1, n):
+            greater_counter[i] += zij_list[c]
+            c += 1
+
+    # Calculate half of the list's length for median index
+    half_n = (n - 1) // 2
+
+    # Create a list of indices
+    indices = list(range(n))
+
+    # Sort indices based on greater_counter and use index_list as a tiebreaker
+    sorted_indices = sorted(indices, key=lambda i: greater_counter[i])
+
+    # Return the index of the median element
+    return sorted_indices[half_n]
 
 
 def median_index_encode(median_index, handle_s_i_list, server_tee: DeviceObject):
     handle_s_med = server_tee(lambda l, index: l[index])(handle_s_i_list, median_index)
     c_median_index = server_tee(
-        lambda x, gcm_key: encrypt_jnp_array_gcm(x, gcm_key), num_returns=1
+        lambda x, gcm_key: encrypt_jnp_array_gcm(jnp.array([x]), gcm_key), num_returns=1
     )(median_index, handle_s_med)
     return c_median_index
 
@@ -163,7 +166,7 @@ def package_information(h: int, valid_indices: np.ndarray, chL):
     vh = valid_indices[h]
     if vh == 1:
         # 1 means accepted
-        return 1, chL
+        return 1, chL[h]
     else:
         # 0 means rejected
         return 0, None
@@ -181,10 +184,13 @@ def aggregation(
     ut_list = []
     for c_ut, handle_s_h in zip(c_ut_list, handle_s_h_list):
         ut = server_tee(lambda c, key: decrypt_to_jnp_array_gcm(c, key))(
-            c_ut, handle_s_h, params.fxp_type, (-1)
+            c_ut,
+            handle_s_h,
         )
         ut_list.append(ut)
-    Mt = server_tee(lambda ut_list, M_t_1: jnp.mean(ut_list) + M_t_1)(ut_list, M_t_1)
+    Mt = server_tee(lambda ut_list, M_t_1: sum(ut_list) / max(len(ut_list), 1) + M_t_1)(
+        ut_list, M_t_1
+    )
 
     ch_Mt_list = []
     for handle_s_h in handle_s_i_list:
@@ -203,4 +209,3 @@ if __name__ == "__main__":
     samples = np.random.normal(loc=mean, scale=std_dev, size=num_samples)
     samples[0] = 0
     samples[1] = 1
-    print(server_clustering(samples, 0.1, 2))

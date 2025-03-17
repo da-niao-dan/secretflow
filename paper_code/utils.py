@@ -51,7 +51,9 @@ class Params:
     # m is the size of array in cos computation
     m: int
     eps: float  # epsilon for closeness
-    min_points: int
+    min_points: int  # see server clustering
+    point_num_threshold: int  # see server clustering
+    sigma: float = 1.0  # see local filtering and aggregation client
 
 
 def bytes_to_jax_random_key(byte_key):
