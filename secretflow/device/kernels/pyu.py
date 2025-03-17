@@ -15,6 +15,7 @@
 
 import logging
 import secrets
+import sys
 from typing import Any, Callable, List, Union
 
 from spu import Visibility
@@ -39,9 +40,31 @@ from secretflow.device.device.base import register_to
 from secretflow.device.device.heu import HEUMoveConfig
 
 
+def total_size(obj, seen=None):
+    """Recursively finds size of objects including referenced objects."""
+    size = sys.getsizeof(obj)
+    if seen is None:
+        seen = set()
+    obj_id = id(obj)
+    if obj_id in seen:
+        return 0
+    seen.add(obj_id)
+    if isinstance(obj, dict):
+        size += sum([total_size(v, seen) for v in obj.values()])
+        size += sum([total_size(k, seen) for k in obj.keys()])
+    elif hasattr(obj, '__dict__'):
+        size += total_size(vars(obj), seen)
+    elif hasattr(obj, '__iter__') and not isinstance(obj, (str, bytes, bytearray)):
+        size += sum([total_size(i, seen) for i in obj])
+    return size
+
+
 @register_to(DeviceType.PYU, DeviceType.PYU)
 def pyu_to_pyu(self: PYUObject, pyu: PYU) -> PYUObject:
     assert isinstance(pyu, PYU), f'Expect a PYU but got {type(pyu)}.'
+    logging.info(
+        f'pyu_to_pyu: {self.device.party} -> {pyu.party}, bytes transferred: {total_size(self.data)}'
+    )
     return PYUObject(pyu, self.data)
 
 

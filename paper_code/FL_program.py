@@ -1,3 +1,4 @@
+import logging
 from typing import Dict, List, Tuple
 
 import jax
@@ -16,6 +17,7 @@ from client_program import (
 )
 from cos_sim import cos_sim
 from device_setups import DevicePanel, HandlePanel, sf_setup
+from performance_stats import time_cost
 from server_program import (
     aggregation,
     index_encode,
@@ -44,6 +46,10 @@ from utils import (
 import secretflow as sf
 from secretflow.device import Device, DeviceObject
 
+# Configure logging to show INFO level messages
+logging.basicConfig(
+    level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s'
+)
 jax.config.update("jax_enable_x64", True)
 
 
@@ -338,74 +344,99 @@ def single_round(
     u_i_list: List[DeviceObject],
     rng: jax.random.PRNGKey,
     M_old: DeviceObject = 0,
+    rount_num: int = 0,  # useful for benchmark logging
 ):
     # Preprocessing
-    device_FKeys = key_gen(device_panel, handle_panel, rng)
-    abc_pairs = corr_rand_distr_pairwise(device_panel, handle_panel, params)
+    with time_cost("preprocessing"):
+        device_FKeys = key_gen(device_panel, handle_panel, rng)
+        abc_pairs = corr_rand_distr_pairwise(device_panel, handle_panel, params)
+        sf.wait([device_FKeys, abc_pairs])
+
     # Local commitment
-    u_i_list_tee = [u_i.to(device_panel.get_tee(i)) for i, u_i in enumerate(u_i_list)]
+    with time_cost("local commitment"):
+        u_i_list_tee = [
+            u_i.to(device_panel.get_tee(i)) for i, u_i in enumerate(u_i_list)
+        ]
+        sf.wait(u_i_list_tee)
+
     # Cosine similarity computation with each P𝑗
-    cos_sim_pairs = cos_sim_pairwise(
-        u_i_list_tee, abc_pairs, device_panel, handle_panel, params
-    )
+    with time_cost("cosine similarity computation"):
+        cos_sim_pairs = cos_sim_pairwise(
+            u_i_list_tee, abc_pairs, device_panel, handle_panel, params
+        )
+        sf.wait(cos_sim_pairs)
+
     # Euclidean norm comparison with each P𝑗
-    euclidean_norm_pairs = euclidean_norm_pairwise(
-        u_i_list_tee, device_FKeys, device_panel, handle_panel, params
-    )
-    zij_list = reconstruct_zij_pairwise(
-        device_panel, handle_panel, euclidean_norm_pairs, params
-    )
-    # Compute the final result
-    median_index_server_tee = device_panel.server_tee(median_and_index)(
-        zij_list, [*range(device_panel.client_num)]
-    )
-    med_encoded = median_index_encode(
-        median_index_server_tee,
-        handle_panel.get_server_handles(),
-        device_panel.server_tee,
-    )
-    # everyone will know valid indices anyway
-    valid_indices = sf.reveal(
-        device_panel.server_tee(server_clustering)(
-            device_panel.client_num,
-            cos_sim_pairs,
-            params.eps,
-            params.min_points,
-            params.point_num_threshold,
+    with time_cost("euclidean norm comparison"):
+        euclidean_norm_pairs = euclidean_norm_pairwise(
+            u_i_list_tee, device_FKeys, device_panel, handle_panel, params
         )
-    )
+        zij_list = reconstruct_zij_pairwise(
+            device_panel, handle_panel, euclidean_norm_pairs, params
+        )
+        # Compute the final result
+        median_index_server_tee = device_panel.server_tee(median_and_index)(
+            zij_list, [*range(device_panel.client_num)]
+        )
+        med_encoded = median_index_encode(
+            median_index_server_tee,
+            handle_panel.get_server_handles(),
+            device_panel.server_tee,
+        )
+        # everyone will know valid indices anyway
+        valid_indices = sf.reveal(
+            device_panel.server_tee(server_clustering)(
+                device_panel.client_num,
+                cos_sim_pairs,
+                params.eps,
+                params.min_points,
+                params.point_num_threshold,
+            )
+        )
 
-    assert len(valid_indices) == device_panel.client_num
+        assert len(valid_indices) == device_panel.client_num
 
-    valid_index_at_clients = valid_index_encode_devicewise(
-        device_panel, handle_panel, valid_indices
-    )
-    u_i_F_if_valid_list = receive_meta_info_and_clipping(
-        valid_index_at_clients,
-        valid_indices,
-        med_encoded,
-        median_index_server_tee,
-        device_panel,
-        handle_panel,
-        params,
-        u_i_list_tee,
-    )
-    Mt, c_Mt_list = local_filtering_and_aggregation(
-        device_panel,
-        handle_panel,
-        u_i_F_if_valid_list,
-        valid_indices,
-        rng,
-        params,
-        M_old,
-    )
+        valid_index_at_clients = valid_index_encode_devicewise(
+            device_panel, handle_panel, valid_indices
+        )
+        sf.wait(valid_index_at_clients)
+
+    # receive meta info and clipping
+    with time_cost("receive meta info and clipping"):
+        u_i_F_if_valid_list = receive_meta_info_and_clipping(
+            valid_index_at_clients,
+            valid_indices,
+            med_encoded,
+            median_index_server_tee,
+            device_panel,
+            handle_panel,
+            params,
+            u_i_list_tee,
+        )
+        sf.wait(u_i_F_if_valid_list)
+
+    # local filtering and aggregation
+    with time_cost("local filtering and aggregation"):
+        Mt, c_Mt_list = local_filtering_and_aggregation(
+            device_panel,
+            handle_panel,
+            u_i_F_if_valid_list,
+            valid_indices,
+            rng,
+            params,
+            M_old,
+        )
+        sf.wait(Mt)
+
     # each client decode Mt_i as output
-    Mt_list = []
-    for i in range(device_panel.client_num):
-        Mt_i = device_panel.get_tee(i)(decrypt_to_jnp_array_gcm)(
-            c_Mt_list[i], handle_panel.get_handle(i, -1)
-        )
-        Mt_list.append(Mt_i)
+    with time_cost("output"):
+        Mt_list = []
+        for i in range(device_panel.client_num):
+            Mt_i = device_panel.get_tee(i)(decrypt_to_jnp_array_gcm)(
+                c_Mt_list[i], handle_panel.get_handle(i, -1)
+            )
+            Mt_list.append(Mt_i)
+        sf.wait(Mt_list)
     return Mt, Mt_list
 
 
@@ -426,14 +457,14 @@ def main():
     device_panel, handle_pannel, params = sf_setup()
     rng_key = jax.random.PRNGKey(0)
     Mt = 0
-    for _ in range(10):
+    for i in range(10):
         # do training and get u_i_list
         u_i_list = simulate_data_u(device_panel, -1.0, 1.0, params.m)
         # do clustering and get Mt
-        Mt, Mt_list = single_round(
-            device_panel, handle_pannel, params, u_i_list, rng_key, Mt
-        )
-
+        with time_cost(f"single round {i}"):
+            Mt, Mt_list = single_round(
+                device_panel, handle_pannel, params, u_i_list, rng_key, Mt, i
+            )
 
 if __name__ == "__main__":
     main()

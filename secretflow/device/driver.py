@@ -14,6 +14,7 @@
 
 import logging
 import pathlib
+import sys
 from functools import wraps
 from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
 
@@ -21,11 +22,11 @@ import jax
 
 import secretflow.distributed as sfd
 from secretflow.device import global_state
-from secretflow.distributed.const import DISTRIBUTION_MODE
 from secretflow.distributed.config import get_cluster_config
+from secretflow.distributed.const import DISTRIBUTION_MODE
+from secretflow.distributed.ray_op import assert_is_fed_obj
 from secretflow.utils.errors import InvalidArgumentError
 from secretflow.utils.logging import set_logging_level
-from secretflow.distributed.ray_op import assert_is_fed_obj
 
 from .device import (
     HEU,
@@ -39,6 +40,25 @@ from .device import (
     SPUObject,
     TEEUObject,
 )
+
+
+def total_size(obj, seen=None):
+    """Recursively finds size of objects including referenced objects."""
+    size = sys.getsizeof(obj)
+    if seen is None:
+        seen = set()
+    obj_id = id(obj)
+    if obj_id in seen:
+        return 0
+    seen.add(obj_id)
+    if isinstance(obj, dict):
+        size += sum([total_size(v, seen) for v in obj.values()])
+        size += sum([total_size(k, seen) for k in obj.keys()])
+    elif hasattr(obj, '__dict__'):
+        size += total_size(vars(obj), seen)
+    elif hasattr(obj, '__iter__') and not isinstance(obj, (str, bytes, bytearray)):
+        size += sum([total_size(i, seen) for i in obj])
+    return size
 
 
 def with_device(
@@ -173,7 +193,7 @@ def reveal(func_or_object, heu_encoder=None):
             new_flatten_val.append(io.reconstruct(shares_chunk, io_info))
         else:
             new_flatten_val.append(x)
-
+    logging.info(f'Finished reveal bytes transferred: {total_size(new_flatten_val)}')
     return jax.tree_util.tree_unflatten(tree, new_flatten_val)
 
 
@@ -548,7 +568,7 @@ def shutdown(barrier_on_shutdown=True, on_error=None):
 
 
 def _parse_party_key_pair(
-    party_key_pair: Dict[str, Union[Dict, str]]
+    party_key_pair: Dict[str, Union[Dict, str]],
 ) -> Dict[str, global_state.PartyCert]:
     party_key_pairs = {}
     for name, info in party_key_pair.items():
