@@ -38,6 +38,7 @@ from secretflow.device import (
 )
 from secretflow.device.device.base import register_to
 from secretflow.device.device.heu import HEUMoveConfig
+from secretflow.device.driver import reveal
 
 
 def total_size(obj, seen=None):
@@ -63,7 +64,7 @@ def total_size(obj, seen=None):
 def pyu_to_pyu(self: PYUObject, pyu: PYU) -> PYUObject:
     assert isinstance(pyu, PYU), f'Expect a PYU but got {type(pyu)}.'
     logging.info(
-        f'pyu_to_pyu: {self.device.party} -> {pyu.party}, bytes transferred: {total_size(self.data)}'
+        f'pyu_to_pyu: {self.device.party} -> {pyu.party}, bytes transferred: {reveal(pyu(total_size)(self.data))}'
     )
     return PYUObject(pyu, self.data)
 
@@ -244,4 +245,5 @@ def pyu_to_teeu(
     )
     wait(teeu_data)
 
+    return TEEUObject(teeu, teeu_data.data)
     return TEEUObject(teeu, teeu_data.data)
