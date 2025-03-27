@@ -61,8 +61,6 @@ class Params:
 
 
 def corr_rand_distribute(devices: Devices, handles: Handles, params: Params):
-    # preprocessing
-    print("first corr begins")
     server_a, edge_tee_i_a = corr(
         params.k,
         params.m,
@@ -71,8 +69,6 @@ def corr_rand_distribute(devices: Devices, handles: Handles, params: Params):
         devices.edge_tee_i,
         handles.i,
     )
-    # debug only
-    print("first corr ends", server_a)
     server_b, edge_tee_j_b = corr(
         params.k,
         params.m,
@@ -213,31 +209,14 @@ def corr(k, m, dev1, key1, dev2, key2, return_zero_sharing=False):
     """
     assert k == 64, "Only support k = 64 for now"
     dtype = jnp.uint64
-    print("corr begins", sf.reveal(key1), dev1, m, dtype)
-
-    corr_dev1 = dev1(
-        lambda x: np.random.randint(
-            0, np.iinfo(np.uint64).max, size=8000, dtype=np.uint64
-        )
-    )(key1)
-    print("test", sf.reveal(corr_dev1))
-
-    # jax random bits will cause jam, so use np random instead. unknown why
-    corr_dev1 = dev1(
-        lambda key, shape, dtype: jax.random.bits(key, shape, dtype=dtype)
-    )(key1, (m,), dtype)
-    # debug only
-    print("corr ends", sf.reveal(corr_dev1), return_zero_sharing)
+    corr_dev1 = dev1(jax.random.bits)(key1, (m,), dtype)
     if not return_zero_sharing:
-        corr_dev2 = dev2(
-            lambda key, shape, dtype: jax.random.bits(key, shape, dtype=dtype)
-        )(key2, (m,), dtype)
+        corr_dev2 = dev2(jax.random.bits)(key2, (m,), dtype)
     else:
         corr_dev2 = dev2(
             lambda key, shape, dtype: -jax.random.bits(key, shape, dtype=dtype)
         )(key2, (m,), dtype)
 
-    print("corr ends", sf.reveal(corr_dev2), return_zero_sharing)
     return corr_dev1, corr_dev2
 
 

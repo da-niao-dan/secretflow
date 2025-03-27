@@ -2,10 +2,13 @@
 # then use python script to create multiple threads with corresponding config files
 
 import argparse
-from multiprocessing import Manager, Process
+from multiprocessing import Manager, Process, set_start_method
 
 from device_setups import create_party_names, create_static_config
 from FL_program import main_prod
+
+# jax is multithreaded, we need to avoid os.fork()
+set_start_method("spawn", force=True)
 
 
 def party_execute(config, party_name, m):
@@ -14,6 +17,7 @@ def party_execute(config, party_name, m):
 
 
 def each_party_run(n: int, m: int):
+    
     party_names = create_party_names(n)
     config = create_static_config(party_names)
 

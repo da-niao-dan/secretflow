@@ -83,12 +83,9 @@ def corr_rand_distr_pairwise(
     for i, j in device_panel.enumerate_pairs():
         devices = device_panel.build_devices(i, j)
         handles = handle_panel.build_handles(i, j)
-        print("corr_rand_distr_pairwise", i, j)
         server_a, server_b, c, edge_tee_i_a, edge_tee_j_b = corr_rand_distribute(
             devices, handles, params
         )
-        # debug only
-        print("corr_rand_distr_pairwise", i, j, "done", sf.reveal(server_a, server_b))
         abs_pairs[(i, j)] = (server_a, server_b, c, edge_tee_i_a, edge_tee_j_b)
     return abs_pairs
 
@@ -354,7 +351,6 @@ def single_round(
         device_FKeys = key_gen(device_panel, handle_panel, rng)
         abc_pairs = corr_rand_distr_pairwise(device_panel, handle_panel, params)
         sf.wait([device_FKeys, abc_pairs])
-        print(abc_pairs)
 
     # Local commitment
     with time_cost("local commitment"):
@@ -475,7 +471,7 @@ def main():
 
 def main_prod(sf_config: dict, self_party: str, m: int):
     device_panel, handle_pannel, params = sf_setup_prod(sf_config, self_party, m)
-    rng_key = jax.random.PRNGKey(0)
+    rng_key = jax.random.key(0)
     Mt = 0
     for i in range(1):
         # do training and get u_i_list

@@ -19,4 +19,11 @@ export ENABLE_COMMUNICATION_LOG=True
 python FL_program.py > log.txt 2>&1
 ```
 
+multiparty run
+
+```bash
+
+python  multiparty_run.py --n 2 --m 2000 > log.txt 2>&1
+```
+
 look at the log file at `paper_code/log.txt`.
