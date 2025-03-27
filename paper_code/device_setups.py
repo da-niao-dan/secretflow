@@ -1,6 +1,9 @@
+import socket
 from typing import List, Tuple
 
+import jax
 import jax.numpy as jnp
+from pydantic import BaseModel
 from utils import Devices, Handles, Params, get_random_bytes
 
 import secretflow as sf
@@ -67,6 +70,7 @@ class DevicePanel:
 class HandlePanel:
     def __init__(self, device_panel: DevicePanel, kappa: int):
         self.handle_map = {}
+        self.corr_key_map = {}
         self.client_num = device_panel.client_num
         for (i, j), (tee_i, tee_j) in zip(
             device_panel.enumerate_pairs(), device_panel.enumerate_tee_pairs()
@@ -89,7 +93,14 @@ class HandlePanel:
                     )
                 }
             )
-        print("Handle map", self.handle_map)
+
+        for i in range(self.client_num):
+            self.corr_key_map.update(
+                {i: device_panel.client_tees[i](lambda x: jax.random.key(x))(kappa)}
+            )
+        self.corr_key_map[-1] = device_panel.server_tee(lambda x: jax.random.key(x))(
+            kappa
+        )
 
     def get_handle(self, i, j):
         return self.handle_map[(i, j)]
@@ -108,13 +119,16 @@ class HandlePanel:
             self.get_handle(j, -1),
             self.get_handle(j, i),
             self.get_handle(i, j),
+            self.corr_key_map[i],
+            self.corr_key_map[j],
+            self.corr_key_map[-1],
         )
 
 
 def sf_setup(
     edge_parties_number=2,
-    edge_party_name='edge_party_{i}',
-    server_party_name='server_party',
+    edge_party_name="edge_party_{i}",
+    server_party_name="server_party",
     fxp=26,
     fxp_type=jnp.uint64,
     kappa=32,
@@ -124,7 +138,26 @@ def sf_setup(
     edge_parties = [edge_party_name.format(i=i) for i in range(edge_parties_number)]
     server_party = [server_party_name]
     all_parties = edge_parties + server_party
-    sf.init(parties=all_parties, address='local')
+    sf.init(
+        parties=all_parties,
+        address="local",
+        omp_num_threads=len(all_parties),
+        cross_silo_comm_backend="brpc_link",
+        ray_mode=False,
+        enable_waiting_for_other_parties_ready=False,
+        cross_silo_comm_options={
+            "proxy_max_restarts": 3,
+            "timeout_in_ms": 300 * 1000,
+            # Give recv_timeout_ms a big value, e.g.
+            # The server does nothing but waits for task finish.
+            # To fix the psi timeout, got a week here.
+            "recv_timeout_ms": 7 * 24 * 3600 * 1000,
+            "connect_retry_times": 3600,
+            "connect_retry_interval_ms": 1000,
+            "brpc_channel_protocol": "http",
+            "brpc_channel_connection_type": "pooled",
+        },
+    )
     edge_devices = [
         sf.PYU(edge_party_name.format(i=i)) for i in range(edge_parties_number)
     ]
@@ -149,4 +182,96 @@ def sf_setup(
 
     device_panel = DevicePanel(edge_devices, server_device, edge_tees, server_tee)
     handle_panel = HandlePanel(device_panel, kappa)
+    return device_panel, handle_panel, params
+
+
+def get_available_port():
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("localhost", 0))
+        return s.getsockname()[1]
+
+
+class PartyNames(BaseModel):
+    client_names: List[str]
+    server_name: str
+
+    def __iter__(self):
+        return iter(self.client_names + [self.server_name])
+
+
+def create_party_names(client_num: int) -> PartyNames:
+    return PartyNames(
+        client_names=[f"client_{i}" for i in range(client_num)], server_name="server"
+    )
+
+
+def create_static_config(party_names: PartyNames):
+    party_ports = {party: get_available_port() for party in party_names}
+
+    config = {}
+
+    config["parties"] = {
+        party_name: {
+            "address": f"127.0.0.1:{party_ports[party_name]}",
+            "listen_addr": f"0.0.0.0:{party_ports[party_name]}",
+        }
+        for party_name in party_names
+    }
+
+    return config
+
+
+def sf_setup_prod(
+    sf_config: dict,
+    party_name: str,
+    m: int = 10,
+):
+    party_names = create_party_names(len(sf_config["parties"]) - 1)
+    sf_config["self_party"] = party_name
+    sf.init(
+        cluster_config=sf_config,
+        cross_silo_comm_backend="brpc_link",
+        ray_mode=False,
+        cross_silo_comm_options={
+            "proxy_max_restarts": 3,
+            "timeout_in_ms": 30 * 1000,
+            # Give recv_timeout_ms a big value, e.g.
+            # The server does nothing but waits for task finish.
+            # To fix the psi timeout, got a week here.
+            "recv_timeout_ms": 7 * 24 * 3600 * 1000,
+            "connect_retry_times": 360,
+            "connect_retry_interval_ms": 100,
+            "brpc_channel_protocol": "http",
+            "brpc_channel_connection_type": "pooled",
+            "exit_on_sending_failure": True,
+            "http_max_payload_size": 5 * 1024 * 1024,
+        },
+        enable_waiting_for_other_parties_ready=True,
+    )
+    edge_devices = [
+        sf.PYU(edge_party_name) for edge_party_name in party_names.client_names
+    ]
+    server_device = sf.PYU(party_names.server_name)
+    # use pyu to simulate teeu
+    edge_tees = [
+        sf.PYU(edge_party_name) for edge_party_name in party_names.client_names
+    ]
+
+    server_device = sf.PYU(party_names.server_name)
+    server_tee = sf.PYU(party_names.server_name)
+    kappa = 32
+    params = Params(
+        fxp=26,
+        fxp_type=jnp.uint64,
+        kappa=kappa,
+        k=64,
+        m=m,
+        eps=10e-5,
+        min_points=max(int(len(party_names.client_names) / 4), 1),
+        point_num_threshold=max(int(len(party_names.client_names) / 2), 1),
+    )
+
+    device_panel = DevicePanel(edge_devices, server_device, edge_tees, server_tee)
+    handle_panel = HandlePanel(device_panel, kappa)
+    print("sf_setup_prod", device_panel)
     return device_panel, handle_panel, params

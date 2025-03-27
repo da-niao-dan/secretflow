@@ -94,48 +94,38 @@ def cos_sim(
 
     c_f_i = c_f.to(devices.edge_device_j).to(devices.edge_device_i)
 
-    # P_i decrypts f in E_i
-    try:
-        f_dec = devices.edge_tee_i(decrypt_to_jnp_array_gcm)(
-            c_f_i.to(devices.edge_tee_i), handles.i_j
-        )
-        sf.wait(f_dec)
-    except:
-        raise RuntimeError("Error in decrypting f, abort")
+    f_dec = devices.edge_tee_i(decrypt_to_jnp_array_gcm)(
+        c_f_i.to(devices.edge_tee_i), handles.i_j
+    )
 
-    # P_j decrypts c in E_j
-    try:
-        e_dec = devices.edge_tee_j(decrypt_to_jnp_array_gcm)(
-            c_e_j.to(devices.edge_tee_j),
-            handles.j_i,
-        )
-        sf.wait(e_dec)
-    except:
-        raise RuntimeError("Error in decrypting c, abort")
+    e_dec = devices.edge_tee_j(decrypt_to_jnp_array_gcm)(
+        c_e_j.to(devices.edge_tee_j),
+        handles.j_i,
+    )
 
     edge_tee_i_a_1, edge_tee_j_a_1 = corr(
         params.k,
         params.m,
         devices.edge_tee_i,
-        handles.i_j,
+        handles.i,
         devices.edge_tee_j,
-        handles.j_i,
+        handles.j,
     )
     edge_tee_i_b_0, edge_tee_j_b_0 = corr(
         params.k,
         params.m,
         devices.edge_tee_i,
-        handles.i_j,
+        handles.i,
         devices.edge_tee_j,
-        handles.j_i,
+        handles.j,
     )
     edge_tee_i_d, edge_tee_j_d = corr(
         params.k,
         params.m,
         devices.edge_tee_i,
-        handles.i_j,
+        handles.i,
         devices.edge_tee_j,
-        handles.j_i,
+        handles.j,
         True,
     )
 
@@ -202,18 +192,14 @@ def cos_sim(
         print("z_bracket_1", sf.reveal(z_bracket_1))
 
     # server tries to decrypt
-    try:
-        z_bracket_0_dec = devices.server_tee(decrypt_to_jnp_array_gcm)(
-            c_z_bracket_0_server,
-            handles.s_i,
-        )
-        z_bracket_1_dec = devices.server_tee(decrypt_to_jnp_array_gcm)(
-            c_z_bracket_1_server,
-            handles.s_j,
-        )
-        sf.wait([z_bracket_0_dec, z_bracket_1_dec])
-    except:
-        raise Exception("Decryption z values failed")
+    z_bracket_0_dec = devices.server_tee(decrypt_to_jnp_array_gcm)(
+        c_z_bracket_0_server,
+        handles.s_i,
+    )
+    z_bracket_1_dec = devices.server_tee(decrypt_to_jnp_array_gcm)(
+        c_z_bracket_1_server,
+        handles.s_j,
+    )
 
     z = devices.server_tee(lambda x, y: params.fxp_type(x + y))(
         z_bracket_0_dec, z_bracket_1_dec
@@ -237,15 +223,17 @@ def cos_sim(
 
 
 def main():
+    from performance_stats import time_cost
+
     import secretflow as sf
 
     edge_parties_number = 2
-    edge_party_name = 'edge_party_{i}'
+    edge_party_name = "edge_party_{i}"
     edge_parties = [edge_party_name.format(i=i) for i in range(edge_parties_number)]
-    server_party_name = 'server_party'
+    server_party_name = "server_party"
     server_party = [server_party_name]
     all_parties = edge_parties + server_party
-    sf.init(parties=all_parties, address='local')
+    sf.init(parties=all_parties, address="local")
     edge_devices = [
         sf.PYU(edge_party_name.format(i=i)) for i in range(edge_parties_number)
     ]
@@ -258,7 +246,14 @@ def main():
     server_device = sf.PYU(server_party_name)
     server_tee = sf.PYU(server_party_name)
     params = Params(
-        fxp=26, fxp_type=jnp.uint64, kappa=32, k=64, m=100, eps=10e-5, min_points=3
+        fxp=26,
+        fxp_type=jnp.uint64,
+        kappa=32,
+        k=64,
+        m=500000,
+        eps=10e-5,
+        min_points=3,
+        point_num_threshold=3,
     )
 
     # custom parameters
@@ -278,10 +273,11 @@ def main():
     handles = gen_handles(devices, params)
     u_i, u_j = simulate_data_u(devices, u_low, u_high, params.m)
     abc_info = corr_rand_distribute(devices, handles, params)
-    print(
-        sf.reveal(cos_sim(u_i, u_j, devices, handles, params, abc_info, verbose=True))
-    )
+    cos_sim_1 = cos_sim(u_i, u_j, devices, handles, params, abc_info, verbose=True)
+    cos_sim_2 = cos_sim(u_i, u_j, devices, handles, params, abc_info, verbose=False)
+    with time_cost("cos_sim"):
+        print(sf.reveal([cos_sim_1, cos_sim_2]))
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

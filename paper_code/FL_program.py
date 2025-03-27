@@ -16,7 +16,7 @@ from client_program import (
     smallest_noise,
 )
 from cos_sim import cos_sim
-from device_setups import DevicePanel, HandlePanel, sf_setup
+from device_setups import DevicePanel, HandlePanel, sf_setup, sf_setup_prod
 from performance_stats import time_cost
 from server_program import (
     aggregation,
@@ -48,7 +48,7 @@ from secretflow.device import Device, DeviceObject
 
 # Configure logging to show INFO level messages
 logging.basicConfig(
-    level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s'
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 jax.config.update("jax_enable_x64", True)
 
@@ -83,9 +83,12 @@ def corr_rand_distr_pairwise(
     for i, j in device_panel.enumerate_pairs():
         devices = device_panel.build_devices(i, j)
         handles = handle_panel.build_handles(i, j)
+        print("corr_rand_distr_pairwise", i, j)
         server_a, server_b, c, edge_tee_i_a, edge_tee_j_b = corr_rand_distribute(
             devices, handles, params
         )
+        # debug only
+        print("corr_rand_distr_pairwise", i, j, "done", sf.reveal(server_a, server_b))
         abs_pairs[(i, j)] = (server_a, server_b, c, edge_tee_i_a, edge_tee_j_b)
     return abs_pairs
 
@@ -160,9 +163,9 @@ def euclidean_norm_pairwise(
             params.k,
             1,
             devices.edge_tee_i,
-            handles.i_j,
+            handles.i,
             devices.edge_tee_j,
-            handles.j_i,
+            handles.j,
             return_zero_sharing=True,
         )
 
@@ -291,9 +294,9 @@ def local_filtering_and_aggregation(
                         params.k,
                         params.m,
                         device_panel.get_tee(i),
-                        handle_panel.get_handle(i, j),
+                        handle_panel.corr_key_map[i],
                         device_panel.get_tee(j),
-                        handle_panel.get_handle(j, i),
+                        handle_panel.corr_key_map[j],
                         return_zero_sharing=True,
                     )
                     r_dict[(i, j)] = rij
@@ -351,6 +354,7 @@ def single_round(
         device_FKeys = key_gen(device_panel, handle_panel, rng)
         abc_pairs = corr_rand_distr_pairwise(device_panel, handle_panel, params)
         sf.wait([device_FKeys, abc_pairs])
+        print(abc_pairs)
 
     # Local commitment
     with time_cost("local commitment"):
@@ -394,7 +398,9 @@ def single_round(
             )
         )
 
-        assert len(valid_indices) == device_panel.client_num
+        assert len(valid_indices) == device_panel.client_num, (
+            f"{len(valid_indices)}, {device_panel.client_num}"
+        )
 
         valid_index_at_clients = valid_index_encode_devicewise(
             device_panel, handle_panel, valid_indices
@@ -454,10 +460,10 @@ def simulate_data_u(
 
 
 def main():
-    device_panel, handle_pannel, params = sf_setup()
+    device_panel, handle_pannel, params = sf_setup(edge_parties_number=20, m=500000)
     rng_key = jax.random.PRNGKey(0)
     Mt = 0
-    for i in range(10):
+    for i in range(1):
         # do training and get u_i_list
         u_i_list = simulate_data_u(device_panel, -1.0, 1.0, params.m)
         # do clustering and get Mt
@@ -465,6 +471,22 @@ def main():
             Mt, Mt_list = single_round(
                 device_panel, handle_pannel, params, u_i_list, rng_key, Mt, i
             )
+
+
+def main_prod(sf_config: dict, self_party: str, m: int):
+    device_panel, handle_pannel, params = sf_setup_prod(sf_config, self_party, m)
+    rng_key = jax.random.PRNGKey(0)
+    Mt = 0
+    for i in range(1):
+        # do training and get u_i_list
+        u_i_list = simulate_data_u(device_panel, -1.0, 1.0, params.m)
+        # do clustering and get Mt
+        with time_cost(f"single round {i}"):
+            Mt, Mt_list = single_round(
+                device_panel, handle_pannel, params, u_i_list, rng_key, Mt, i
+            )
+    sf.shutdown()
+
 
 if __name__ == "__main__":
     main()

@@ -39,6 +39,10 @@ class Handles:
     j_i: DeviceObject = None
     # handles at i
     i_j: DeviceObject = None
+    # corr keys
+    i: DeviceObject = None
+    j: DeviceObject = None
+    s: DeviceObject = None
 
 
 @dataclass
@@ -56,32 +60,26 @@ class Params:
     sigma: float = 1.0  # see local filtering and aggregation client
 
 
-def bytes_to_jax_random_key(byte_key):
-    seed = int.from_bytes(byte_key[:4], 'big')
-
-    # Create a JAX random key with this seed
-    jax_key = jax.random.PRNGKey(seed)
-
-    return jax_key
-
-
 def corr_rand_distribute(devices: Devices, handles: Handles, params: Params):
     # preprocessing
+    print("first corr begins")
     server_a, edge_tee_i_a = corr(
         params.k,
         params.m,
         devices.server_tee,
-        handles.s_i,
+        handles.s,
         devices.edge_tee_i,
-        handles.i_s,
+        handles.i,
     )
+    # debug only
+    print("first corr ends", server_a)
     server_b, edge_tee_j_b = corr(
         params.k,
         params.m,
         devices.server_tee,
-        handles.s_j,
+        handles.s,
         devices.edge_tee_j,
-        handles.j_s,
+        handles.j,
     )
     c = devices.server_tee(lambda a, b: a * b)(server_a, server_b)
     return server_a, server_b, c, edge_tee_i_a, edge_tee_j_b
@@ -99,7 +97,6 @@ class EncryptedData:
 
 # Function to encrypt a jnp array using AES-GCM
 def encrypt_jnp_array_gcm(jnp_array, key) -> EncryptedData:
-
     # Convert numpy array to bytes
     array_bytes = jnp_array.tobytes()
 
@@ -206,9 +203,9 @@ def corr(k, m, dev1, key1, dev2, key2, return_zero_sharing=False):
         k (int): ring size will be 2^k. Support k = 64 or 128 for now
         m (int): size of array to be correlated
         dev1 (Device): device 1
-        key1 (Key): key for device 1
+        key1 (Key): corr key for device 1
         dev2 (Device): device 2
-        key2 (Key): key for device 2, key2 must be the same as key1 yet hold by different device
+        key2 (Key): corr key for device 2, key2 must be the same as key1 yet hold by different device
 
     Note that key splitting functionality is not implemented here, so the random key is not updated
     however, key updating must be implemented in real production code.
@@ -216,24 +213,31 @@ def corr(k, m, dev1, key1, dev2, key2, return_zero_sharing=False):
     """
     assert k == 64, "Only support k = 64 for now"
     dtype = jnp.uint64
+    print("corr begins", sf.reveal(key1), dev1, m, dtype)
 
     corr_dev1 = dev1(
-        lambda key, shape, dtype: dtype(
-            jax.random.bits(bytes_to_jax_random_key(key), shape)
+        lambda x: np.random.randint(
+            0, np.iinfo(np.uint64).max, size=8000, dtype=np.uint64
         )
+    )(key1)
+    print("test", sf.reveal(corr_dev1))
+
+    # jax random bits will cause jam, so use np random instead. unknown why
+    corr_dev1 = dev1(
+        lambda key, shape, dtype: jax.random.bits(key, shape, dtype=dtype)
     )(key1, (m,), dtype)
+    # debug only
+    print("corr ends", sf.reveal(corr_dev1), return_zero_sharing)
     if not return_zero_sharing:
         corr_dev2 = dev2(
-            lambda key, shape, dtype: dtype(
-                jax.random.bits(bytes_to_jax_random_key(key), shape)
-            )
+            lambda key, shape, dtype: jax.random.bits(key, shape, dtype=dtype)
         )(key2, (m,), dtype)
     else:
         corr_dev2 = dev2(
-            lambda key, shape, dtype: dtype(
-                -jax.random.bits(bytes_to_jax_random_key(key), shape)
-            )
+            lambda key, shape, dtype: -jax.random.bits(key, shape, dtype=dtype)
         )(key2, (m,), dtype)
+
+    print("corr ends", sf.reveal(corr_dev2), return_zero_sharing)
     return corr_dev1, corr_dev2
 
 

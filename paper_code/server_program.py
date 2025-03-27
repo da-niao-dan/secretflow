@@ -100,9 +100,7 @@ def server_clustering(
                 outlier_counter[i] += 1
                 outlier_counter[j] += 1
             i += 1
-    valid_indices = np.where(outlier_counter < outlier_threshold)[0]
-
-    return valid_indices.astype(np.int32)
+    return outlier_counter < outlier_threshold
 
 
 def index_encode(valid_indices, handle_s_h):
