@@ -273,5 +273,4 @@ def sf_setup_prod(
 
     device_panel = DevicePanel(edge_devices, server_device, edge_tees, server_tee)
     handle_panel = HandlePanel(device_panel, kappa)
-    print("sf_setup_prod", device_panel)
     return device_panel, handle_panel, params
