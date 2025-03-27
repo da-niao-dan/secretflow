@@ -1,3 +1,4 @@
+import copy
 import logging
 from typing import Dict, List, Tuple
 
@@ -104,8 +105,8 @@ def cos_sim_pairwise(
         cos_sim_i_j = cos_sim(
             u_i_list_tee[i],
             u_i_list_tee[j],
-            devices,
-            handles,
+            copy.copy(devices),
+            copy.copy(handles),
             params,
             abc_info.get((i, j)),
         )
@@ -457,7 +458,7 @@ def simulate_data_u(
 
 def main():
     device_panel, handle_pannel, params = sf_setup(edge_parties_number=20, m=500000)
-    rng_key = jax.random.PRNGKey(0)
+    rng_key = jax.random.key(0)
     Mt = 0
     for i in range(1):
         # do training and get u_i_list

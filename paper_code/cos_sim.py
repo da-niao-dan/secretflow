@@ -27,70 +27,32 @@ def cos_sim(
     handles: Handles,
     params: Params,
     abc_info: Tuple[DeviceObject],
-    verbose=False,
 ) -> DeviceObject:
     # programming details not related to protocol
-    if verbose:
-        print("input: ", sf.reveal(u_i), sf.reveal(u_j))
 
     params.fxp_type = jnp.uint64
 
-    server_a, server_b, c, edge_tee_i_a, edge_tee_j_b = abc_info
-
-    if verbose:
-        print()
-        print("preprocessing: ")
-        print("server_a: ", sf.reveal(server_a))
-        print("server_b: ", sf.reveal(server_b))
-
-        print("edge_tee_i_a: ", sf.reveal(server_a))
-        print("edge_tee_j_b: ", sf.reveal(edge_tee_j_b))
-        print("c: ", sf.reveal(c))
+    _, _, c, edge_tee_i_a, edge_tee_j_b = abc_info
 
     # normalize u_i and u_j
-    u_i_normalized = devices.edge_tee_i(
-        lambda x: jnp.array(
+    def normalize(x):
+        return jnp.array(
             x / jnp.linalg.norm(x) * (2.0**params.fxp), dtype=params.fxp_type
         )
-    )(u_i.to(devices.edge_tee_i))
-    u_j_normalized = devices.edge_tee_j(
-        lambda x: jnp.array(
-            x / jnp.linalg.norm(x) * (2.0**params.fxp), dtype=params.fxp_type
-        )
-    )(u_j.to(devices.edge_tee_j))
-
-    if verbose:
-        print()
-        print("step 1:")
-        print("params.fxp", params.fxp)
-        print("u_i_normalized", sf.reveal(u_i_normalized))
-        print("u_j_normalized", sf.reveal(u_j_normalized))
 
     # E_i encrypts e = u_i_normalized - a, sends to P_j via P_i
-    e = devices.edge_tee_i(lambda x, y: x - y)(u_i_normalized, edge_tee_i_a)
-
-    if verbose:
-        print()
-        print("step 2:")
-        print("a: ", sf.reveal(edge_tee_i_a))
-        print("e = u_i_normalized - a: ", sf.reveal(e))
+    e = devices.edge_tee_i(lambda x, y: normalize(x) - y)(
+        u_i.to(devices.edge_tee_i), edge_tee_i_a
+    )
 
     c_e = devices.edge_tee_i(encrypt_jnp_array_gcm)(e, handles.i_j)
     c_e_j = c_e.to(devices.edge_device_i).to(devices.edge_device_j)
 
     # E_j encrypts f = u_j_normalized - b, sends to P_i via P_j
-    f = devices.edge_tee_j(lambda x, y: x - y)(u_j_normalized, edge_tee_j_b)
-    if verbose:
-        print("step 2, f:")
-        print("f dtype", sf.reveal(f).dtype)
+    f = devices.edge_tee_j(lambda x, y: normalize(x) - y)(
+        u_j.to(devices.edge_tee_j), edge_tee_j_b
+    )
     c_f = devices.edge_tee_j(encrypt_jnp_array_gcm)(f, handles.j_i)
-
-    if verbose:
-        print()
-        print("step 3:")
-        print("u_j_normalized: ", sf.reveal(u_j_normalized))
-        print("b: ", sf.reveal(edge_tee_j_b))
-        print("f = u_j_normalized - b: ", sf.reveal(f))
 
     c_f_i = c_f.to(devices.edge_device_j).to(devices.edge_device_i)
 
@@ -129,38 +91,19 @@ def cos_sim(
         True,
     )
 
-    edge_tee_i_a_0 = devices.edge_tee_i(lambda x, y: params.fxp_type(x - y))(
-        edge_tee_i_a, edge_tee_i_a_1
+    def compute_z_bracket_0(x1, x2, x3, x4_1, x4_2, x5):
+        x4 = params.fxp_type(x4_1 - x4_2)
+        z_bracket = (
+            params.fxp_type(x1 * x2)
+            + params.fxp_type(x3 * x4)
+            + params.fxp_type(x1 * x3)
+            + params.fxp_type(x5)
+        )
+        return z_bracket
+
+    z_bracket_0 = devices.edge_tee_i(compute_z_bracket_0)(
+        e, edge_tee_i_b_0, f_dec, edge_tee_i_a, edge_tee_i_a_1, edge_tee_i_d
     )
-    edge_tee_j_b_1 = devices.edge_tee_j(lambda x, y: params.fxp_type(x - y))(
-        edge_tee_j_b, edge_tee_j_b_0
-    )
-
-    if verbose:
-        print()
-        print("step 6:")
-        print("a_0: ", sf.reveal(edge_tee_i_a_0))
-        print("b_1: ", sf.reveal(edge_tee_j_b_1))
-        print("a_1: ", sf.reveal(edge_tee_i_a_1))
-        print("b_0: ", sf.reveal(edge_tee_j_b_0))
-        print("d_0: ", sf.reveal(edge_tee_i_d))
-        print("d_1: ", sf.reveal(edge_tee_j_d))
-
-    # E_i computes:
-    z_bracket_0 = devices.edge_tee_i(
-        lambda x1, x2, x3, x4, x5: params.fxp_type(x1 * x2)
-        + params.fxp_type(x3 * x4)
-        + params.fxp_type(x1 * x3)
-        + params.fxp_type(x5)
-    )(e, edge_tee_i_b_0, f_dec, edge_tee_i_a_0, edge_tee_i_d)
-
-    if verbose:
-        print()
-        print("step 7:")
-        print("e", sf.reveal(e))
-        print("f_dec", sf.reveal(f_dec))
-        print("edge_tee_i_d", sf.reveal(edge_tee_i_d))
-        print("z_bracket_0", sf.reveal(z_bracket_0))
 
     # E_i encrypts z_bracket_0, sends to server tee via server
     c_z_bracket_0 = devices.edge_tee_i(encrypt_jnp_array_gcm)(z_bracket_0, handles.i_s)
@@ -168,13 +111,16 @@ def cos_sim(
         devices.server_tee
     )
 
-    # E_j computes:
-    z_bracket_1 = devices.edge_tee_j(
-        lambda x1, x2, x3, x4, x5: params.fxp_type(
+    def compute_z_bracket_1(x1, x2_1, x2_2, x3, x4, x5):
+        x2 = params.fxp_type(x2_1 - x2_2)
+        z_bracket = (
             params.fxp_type(x1 * x2) + params.fxp_type(x3 * x4) + params.fxp_type(x5)
         )
-    )(e_dec, edge_tee_j_b_1, f, edge_tee_j_a_1, edge_tee_j_d)
+        return z_bracket
 
+    z_bracket_1 = devices.edge_tee_j(compute_z_bracket_1)(
+        e_dec, edge_tee_j_b, edge_tee_j_b_0, f, edge_tee_j_a_1, edge_tee_j_d
+    )
     # E_j encrypts z_bracket_1, sends to server tee via server
     c_z_bracket_1 = devices.edge_tee_j(
         encrypt_jnp_array_gcm,
@@ -183,42 +129,21 @@ def cos_sim(
         devices.server_tee
     )
 
-    if verbose:
-        print()
-        print("step 8:")
-        print("e_dec", sf.reveal(e_dec))
-        print("f", sf.reveal(f))
-        print("edge_tee_j_d", sf.reveal(edge_tee_j_d))
-        print("z_bracket_1", sf.reveal(z_bracket_1))
-
     # server tries to decrypt
-    z_bracket_0_dec = devices.server_tee(decrypt_to_jnp_array_gcm)(
-        c_z_bracket_0_server,
-        handles.s_i,
-    )
-    z_bracket_1_dec = devices.server_tee(decrypt_to_jnp_array_gcm)(
-        c_z_bracket_1_server,
-        handles.s_j,
+
+    def compute_cos_sim_val(
+        c_z_bracket_0_server, handle_s_i, c_z_bracket_1_server, handle_s_j, c
+    ):
+        z_bracket_0_dec = decrypt_to_jnp_array_gcm(c_z_bracket_0_server, handle_s_i)
+        z_bracket_1_dec = decrypt_to_jnp_array_gcm(c_z_bracket_1_server, handle_s_j)
+        z = params.fxp_type(z_bracket_0_dec + z_bracket_1_dec)
+        cos_sim_val = jnp.sum(params.fxp_type(z + c))
+        return cos_sim_val
+
+    cos_sim_val = devices.server_tee(compute_cos_sim_val)(
+        c_z_bracket_0_server, handles.s_i, c_z_bracket_1_server, handles.s_j, c
     )
 
-    z = devices.server_tee(lambda x, y: params.fxp_type(x + y))(
-        z_bracket_0_dec, z_bracket_1_dec
-    )
-    cos_sim_val = devices.server_tee(lambda x, y: jnp.sum(params.fxp_type(x + y)))(z, c)
-
-    if verbose:
-        print()
-        print("step 10:")
-        print("z_bracket_0_dec", sf.reveal(z_bracket_0_dec))
-        print("z_bracket_1_dec", sf.reveal(z_bracket_1_dec))
-        print("z", sf.reveal(z))
-        print("c", sf.reveal(c))
-        print("cos_sim_val", sf.reveal(cos_sim_val))
-        print("params.fxp", params.fxp)
-        print(
-            "cos_sim_val / 2^(2*params.fxp)",
-            sf.reveal(cos_sim_val) / (2.0 ** (2 * params.fxp)),
-        )
     return cos_sim_val
 
 

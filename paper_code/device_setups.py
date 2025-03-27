@@ -26,9 +26,12 @@ class DevicePanel:
         self.client_num = len(client_tees)
 
     def enumerate_pairs(self):
-        for i in range(self.client_num):
-            for j in range(i + 1, self.client_num):
-                yield (i, j)
+        # Iterate over diagonals, starting from 1 to client_num-1
+        for k in range(1, self.client_num):
+            for i in range(self.client_num):
+                j = (i + k) % self.client_num
+                if i < j:  # Ensure each pair (i, j) is computed only once
+                    yield (i, j)
 
     def get_device(self, i):
         if i == -1:
@@ -57,14 +60,12 @@ class DevicePanel:
         )
 
     def enumerate_device_pairs(self):
-        for i in range(self.client_num):
-            for j in range(i + 1, self.client_num):
-                yield (self.client_devices[i], self.client_devices[j])
+        for i, j in self.enumerate_pairs():
+            yield (self.build_devices(i, j), self.build_handles(i, j))
 
     def enumerate_tee_pairs(self):
-        for i in range(self.client_num):
-            for j in range(i + 1, self.client_num):
-                yield (self.client_tees[i], self.client_tees[j])
+        for i, j in self.enumerate_pairs():
+            yield (self.client_tees[i], self.client_tees[j])
 
 
 class HandlePanel:
