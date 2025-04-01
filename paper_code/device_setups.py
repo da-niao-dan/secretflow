@@ -144,7 +144,7 @@ def sf_setup(
         address="local",
         omp_num_threads=len(all_parties),
         cross_silo_comm_backend="brpc_link",
-        ray_mode=False,
+        ray_mode=True,
         enable_waiting_for_other_parties_ready=False,
         cross_silo_comm_options={
             "proxy_max_restarts": 3,
