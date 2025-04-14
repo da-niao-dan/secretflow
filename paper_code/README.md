@@ -56,3 +56,10 @@ In order to gain best run time performance, we need to disable the log function,
 ```bash
 ENABLE_COMMUNICATION_LOG=False
 ```
+
+benchmark baseline in production mode
+
+```bash
+python  multiparty_run.py --f tee --n 2 --m 2000 > log.txt 2>&1
+python  multiparty_run.py --f mpc --w 3 --n 2 --m 2000 > log.txt 2>&1
+```
