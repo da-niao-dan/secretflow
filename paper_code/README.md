@@ -2,10 +2,17 @@
 
 Assume we are at *secretflow* repo
 
+Extra steps on Ubuntu 24.04:
+1. Install `python3.10`: `sudo apt install python3.10 python3.10-dev`
+2. Optional: enable virtual environment: `sudo apt install python3.10-venv; python3.10 -m venv venv; source venv/bin/activate`
+3. Get latest bazelisk from [Github](https://github.com/bazelbuild/bazelisk/releases) and install.
+4. Optional: if `bazel` failed at `yacl`, add `#include <cstdint>` to `..../bazel/..../yacl/yacl/base/int128.h`
+
 install modified sf
 
 ```bash
 pip install -e .
+pip install pycryptodome pydantic dotenv
 ```
 
 run the paper code:
