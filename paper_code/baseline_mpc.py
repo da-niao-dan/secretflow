@@ -80,7 +80,7 @@ def single_round(
         sf.reveal(M_new)
 
 
-def main_mpc(sf_config: dict, party_names, n:int, m: int):
+def main_prod(sf_config: dict, party_names, n:int, m: int):
     device_panel, params = sf_setup_mpc(sf_config, party_names, n, m)
     Mt = jnp.zeros((params.m,), dtype=jnp.float64)
     u_i_list = [

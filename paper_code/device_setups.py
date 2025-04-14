@@ -195,20 +195,21 @@ def get_available_port():
 
 class PartyNames(BaseModel):
     client_names: List[str]
-    server_name: str
+    server_names: List[str]
 
     def __iter__(self):
-        return iter(self.client_names + [self.server_name])
+        return iter(self.client_names + self.server_names)
 
 
-def create_party_names(client_num: int) -> PartyNames:
+def create_party_names(client_num: int, server_num: int = 1) -> PartyNames:
     return PartyNames(
-        client_names=[f"client_{i}" for i in range(client_num)], server_name="server"
+        client_names=[f"client_{i}" for i in range(client_num)], server_names=[f"server_{i}" for i in range(server_num)]
     )
 
 
 def create_static_config(party_names: PartyNames):
     party_ports = {party: get_available_port() for party in party_names}
+    spu_ports = {party: get_available_port() for party in party_names.server_names}
 
     config = {}
 
@@ -219,6 +220,11 @@ def create_static_config(party_names: PartyNames):
         }
         for party_name in party_names
     }
+
+    config["nodes"] = [
+        {"party": party_name, "address": f"127.0.0.1:{spu_ports[party_name]}"}
+        for party_name in party_names.server_names
+    ]
 
     return config
 
@@ -253,14 +259,14 @@ def sf_setup_prod(
     edge_devices = [
         sf.PYU(edge_party_name) for edge_party_name in party_names.client_names
     ]
-    server_device = sf.PYU(party_names.server_name)
+    server_device = sf.PYU(party_names.server_names[0])
     # use pyu to simulate teeu
     edge_tees = [
         sf.PYU(edge_party_name) for edge_party_name in party_names.client_names
     ]
 
-    server_device = sf.PYU(party_names.server_name)
-    server_tee = sf.PYU(party_names.server_name)
+    server_device = sf.PYU(party_names.server_names[0])
+    server_tee = sf.PYU(party_names.server_names[0])
     kappa = 32
     params = Params(
         fxp=26,
@@ -280,7 +286,7 @@ def sf_setup_prod(
 
 def sf_setup_mpc(
     sf_config: dict,
-    party_names,
+    party_names: PartyNames,
     n: int = 2,
     m: int = 10,
 ):
@@ -314,8 +320,8 @@ def sf_setup_mpc(
         point_num_threshold=max(int(n / 2), 1),
     )
 
-    pyu_devices = [sf.PYU(server) for server in party_names]
-    spu_config = sf.utils.testing.cluster_def(party_names)
+    pyu_devices = [sf.PYU(server) for server in party_names.server_names]
+    spu_config = sf.utils.testing.cluster_def(party_names.server_names)
     spu_config['nodes'] = sf_config['nodes']
     spu_config['runtime_config']['field'] = spu.spu_pb2.FM64
     spu_config['runtime_config']['fxp_fraction_bits'] = params.fxp
