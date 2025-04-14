@@ -4,6 +4,7 @@ from typing import List, Tuple
 import jax
 import jax.numpy as jnp
 from pydantic import BaseModel
+import spu
 from utils import Devices, Handles, Params, get_random_bytes
 
 import secretflow as sf
@@ -275,3 +276,50 @@ def sf_setup_prod(
     device_panel = DevicePanel(edge_devices, server_device, edge_tees, server_tee)
     handle_panel = HandlePanel(device_panel, kappa)
     return device_panel, handle_panel, params
+
+
+def sf_setup_mpc(
+    sf_config: dict,
+    party_names,
+    n: int = 2,
+    m: int = 10,
+):
+    sf.init(
+        cluster_config=sf_config,
+        cross_silo_comm_backend="brpc_link",
+        ray_mode=False,
+        cross_silo_comm_options={
+            "proxy_max_restarts": 3,
+            "timeout_in_ms": 30 * 1000,
+            "recv_timeout_ms": 7 * 24 * 3600 * 1000,
+            "connect_retry_times": 360,
+            "connect_retry_interval_ms": 100,
+            "brpc_channel_protocol": "http",
+            "brpc_channel_connection_type": "pooled",
+            "exit_on_sending_failure": True,
+            "http_max_payload_size": 5 * 1024 * 1024,
+        },
+        enable_waiting_for_other_parties_ready=True,
+    )
+
+    kappa = 32
+    params = Params(
+        fxp=26,
+        fxp_type=jnp.uint64,
+        kappa=kappa,
+        k=64,
+        m=m,
+        eps=10e-5,
+        min_points=max(int(n / 4), 1),
+        point_num_threshold=max(int(n / 2), 1),
+    )
+
+    pyu_devices = [sf.PYU(server) for server in party_names]
+    spu_config = sf.utils.testing.cluster_def(party_names)
+    spu_config['nodes'] = sf_config['nodes']
+    spu_config['runtime_config']['field'] = spu.spu_pb2.FM64
+    spu_config['runtime_config']['fxp_fraction_bits'] = params.fxp
+    server_spu = sf.SPU(spu_config)
+
+    device_panel = DevicePanel(pyu_devices, server_spu, pyu_devices, server_spu)
+    return device_panel, params
