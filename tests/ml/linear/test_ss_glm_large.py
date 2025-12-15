@@ -18,6 +18,7 @@ import time
 import numpy as np
 import pytest
 from sklearn.compose import ColumnTransformer
+from sklearn.datasets import fetch_openml
 from sklearn.linear_model import TweedieRegressor
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import (
@@ -32,8 +33,6 @@ from secretflow.device.driver import SPU, reveal, wait
 from secretflow.ml.linear.ss_glm import SSGLM
 from secretflow.ml.linear.ss_glm.core import get_dist
 from secretflow.ml.linear.ss_glm.metrics import deviance
-
-from sklearn.datasets import fetch_openml
 from tests.sf_fixtures import SFProdParams
 
 

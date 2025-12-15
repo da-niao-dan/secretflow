@@ -19,11 +19,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from google.protobuf.json_format import MessageToJson
-from secretflow_spec.v1.data_pb2 import (
-    DistData,
-    TableSchema,
-    VerticalTable,
-)
+from secretflow_spec.v1.data_pb2 import DistData, TableSchema, VerticalTable
 from sklearn.datasets import load_iris
 
 from secretflow.component.core import (

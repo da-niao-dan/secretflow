@@ -27,13 +27,9 @@ from google.protobuf.json_format import MessageToJson
 from secretflow_spec.v1.data_pb2 import StorageConfig
 from secretflow_spec.v1.evaluation_pb2 import NodeEvalParam
 
-from secretflow.component.core import (
-    Registry,
-    comp_eval,
-    get_comp_list_def,
-    load_plugins,
-)
+from secretflow.component.core import Registry, comp_eval, get_comp_list_def
 from secretflow.component.core import get_translation as core_get_translation
+from secretflow.component.core import load_plugins
 from secretflow.component.core import translate as core_translate
 from secretflow.spec.extend.cluster_pb2 import SFClusterConfig
 from secretflow.utils.logging import LOG_FORMAT, get_logging_level, set_logging_level

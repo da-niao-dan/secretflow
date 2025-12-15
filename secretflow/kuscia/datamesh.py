@@ -19,13 +19,13 @@ from enum import Enum
 import grpc
 import pyarrow.flight as flight
 from dataproxy import (
+    DataColumn,
     DataProxyConfig,
     DataProxyFileAdapter,
     DownloadInfo,
     FileFormat,
     TlSConfig,
     UploadInfo,
-    DataColumn,
 )
 from kuscia.proto.api.v1alpha1.datamesh.domaindata_pb2 import (
     CreateDomainDataRequest,

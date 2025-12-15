@@ -21,6 +21,7 @@ import numpy as np
 import pytest
 import xgboost as xgb
 from sklearn.compose import ColumnTransformer
+from sklearn.datasets import fetch_openml
 from sklearn.metrics import mean_squared_error, roc_auc_score
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import (
@@ -40,8 +41,6 @@ from secretflow.ml.boost.sgb_v.core.params import (
 )
 from secretflow.ml.linear.ss_glm.core import get_dist
 from secretflow.ml.linear.ss_glm.metrics import deviance
-
-from sklearn.datasets import fetch_openml
 from secretflow.utils.simulation.datasets import load_linear
 from tests.sf_fixtures import SFProdParams
 

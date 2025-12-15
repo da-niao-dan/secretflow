@@ -19,7 +19,7 @@
 import collections
 import logging
 from abc import ABC
-from typing import Callable, cast, Dict, List, Optional, Sequence, Tuple, Union
+from typing import Callable, Dict, List, Optional, Sequence, Tuple, Union, cast
 
 import numpy
 

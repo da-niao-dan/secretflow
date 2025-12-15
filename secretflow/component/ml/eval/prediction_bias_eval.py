@@ -25,10 +25,10 @@ from secretflow.component.core import (
     Input,
     Interval,
     Output,
-    register,
     Reporter,
     VTable,
     VTableFieldKind,
+    register,
 )
 from secretflow.device import reveal
 from secretflow.stats.core.prediction_bias_core import PredictionBiasReport

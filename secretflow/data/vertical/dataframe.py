@@ -23,7 +23,7 @@ from secretflow.data.base import DataFrameBase
 from secretflow.data.core import Partition
 from secretflow.data.groupby import DataFrameGroupBy
 from secretflow.data.ndarray import FedNdarray, PartitionWay
-from secretflow.device import PYU, PYUObject, reveal, SPU
+from secretflow.device import PYU, SPU, PYUObject, reveal
 
 
 @dataclass

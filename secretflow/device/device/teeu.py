@@ -25,9 +25,9 @@ from secretflow.device import global_state
 from secretflow.device.device._utils import check_num_returns
 from secretflow.device.device.base import Device, DeviceObject, DeviceType
 from secretflow.distributed import FED_OBJECT_TYPES
+from secretflow.distributed.ray_op import resolve_arg_flat_tree
 from secretflow.utils import secure_pickle as pickle
 from secretflow.utils.logging import LOG_FORMAT, get_logging_level
-from secretflow.distributed.ray_op import resolve_arg_flat_tree
 
 
 @dataclass

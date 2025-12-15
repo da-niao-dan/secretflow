@@ -17,11 +17,11 @@ from typing import List, Union
 import jax.tree_util
 import numpy as np
 
+import secretflow.distributed as sfd
 from secretflow.device.device.pyu import PYU, PYUObject
 
 from .base import DeviceObject
 from .register import dispatch
-import secretflow.distributed as sfd
 
 
 class HEUObject(DeviceObject):

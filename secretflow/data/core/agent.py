@@ -17,7 +17,7 @@ from typing import Any, Callable, Dict, List, Union
 import numpy as np
 import pandas as pd
 
-from secretflow.device import proxy, PYUObject
+from secretflow.device import PYUObject, proxy
 
 from .base import AgentIndex, PartDataFrameBase, PartitionAgentBase
 from .pandas import PdPartDataFrame

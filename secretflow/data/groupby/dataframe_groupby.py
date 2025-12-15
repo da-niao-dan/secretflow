@@ -31,11 +31,11 @@ from spu.ops.groupby import (
 
 from secretflow.device import (
     PYU,
-    PYUObject,
-    reveal,
     SPU,
+    PYUObject,
     SPUCompilerNumReturnsPolicy,
     SPUObject,
+    reveal,
 )
 
 

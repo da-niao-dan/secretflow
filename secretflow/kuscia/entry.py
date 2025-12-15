@@ -26,8 +26,8 @@ from secretflow_spec.v1.data_pb2 import DistData, StorageConfig
 from secretflow_spec.v1.evaluation_pb2 import NodeEvalParam, NodeEvalResult
 
 from secretflow.component.core import (
-    comp_eval,
     DistDataType,
+    comp_eval,
     format_exception,
     load_plugins,
 )

@@ -27,9 +27,9 @@ from secretflow.ml.boost.core.metric import MetricProducer
 from secretflow.ml.boost.sgb_v.checkpoint import SGBCheckpointData
 from secretflow.ml.boost.sgb_v.core.early_stopping import EarlyStopActorCallback
 from secretflow.ml.boost.sgb_v.core.params import (
+    TreeGrowingMethod,
     default_params,
     get_unused_params,
-    TreeGrowingMethod,
     type_and_range_check,
 )
 from secretflow.ml.boost.sgb_v.factory.components.component import set_params_from_dict

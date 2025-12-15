@@ -15,13 +15,6 @@
 
 import pandas as pd
 import pytest
-
-from secretflow.component.core import (
-    build_node_eval_param,
-    comp_eval,
-    DistDataType,
-    make_storage,
-)
 from secretflow_spec.v1.data_pb2 import (
     DistData,
     IndividualTable,
@@ -29,6 +22,13 @@ from secretflow_spec.v1.data_pb2 import (
     VerticalTable,
 )
 from secretflow_spec.v1.report_pb2 import Report
+
+from secretflow.component.core import (
+    DistDataType,
+    build_node_eval_param,
+    comp_eval,
+    make_storage,
+)
 
 
 def check_report(dd: DistData, target_names, categorical_target_names):

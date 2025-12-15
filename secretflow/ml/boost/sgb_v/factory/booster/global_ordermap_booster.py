@@ -33,9 +33,9 @@ from secretflow.ml.boost.core.callback import (
 from secretflow.ml.boost.core.data_preprocess import prepare_dataset
 from secretflow.ml.boost.core.metric import Metric
 from secretflow.ml.boost.sgb_v.checkpoint import (
+    SGBCheckpointData,
     checkpoint_data_to_model_and_train_state,
     sgb_model_to_checkpoint_data,
-    SGBCheckpointData,
 )
 from secretflow.ml.boost.sgb_v.core.params import default_params
 

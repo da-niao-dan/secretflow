@@ -18,14 +18,13 @@ import time
 
 import numpy as np
 import pytest
+from sklearn.metrics import mean_squared_error, roc_auc_score
 
 from secretflow.data import FedNdarray, PartitionWay
 from secretflow.device.driver import reveal
 from secretflow.ml.boost.sgb_v import Sgb
 from secretflow.ml.boost.sgb_v.model import load_model
 from secretflow.utils.simulation.datasets import load_dermatology, load_linear
-from sklearn.metrics import mean_squared_error, roc_auc_score
-
 from tests.sf_fixtures import SFProdParams
 
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"

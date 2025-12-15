@@ -18,7 +18,7 @@ import jax.numpy as jnp
 
 from secretflow.data import FedNdarray, PartitionWay
 from secretflow.data.vertical import VDataFrame
-from secretflow.device import PYU, PYUObject, SPU, SPUObject
+from secretflow.device import PYU, SPU, PYUObject, SPUObject
 from secretflow.ml.boost.core.data_preprocess import prepare_dataset
 
 from .core import node_split as split_fn

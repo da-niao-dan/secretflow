@@ -25,10 +25,10 @@ from secretflow.component.core import (
     Input,
     Interval,
     Output,
-    register,
     Reporter,
     VTable,
     VTableFieldKind,
+    register,
 )
 from secretflow.device.driver import reveal
 from secretflow.stats.biclassification_eval import (

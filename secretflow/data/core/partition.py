@@ -15,7 +15,7 @@
 import logging
 from typing import Callable, List, Union
 
-from secretflow.device import Device, PYU, PYUObject, reveal, wait
+from secretflow.device import PYU, Device, PYUObject, reveal, wait
 from secretflow.distributed.primitive import get_current_cluster_idx
 
 from ..base import DataFrameBase

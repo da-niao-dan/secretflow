@@ -14,8 +14,8 @@
 
 import multiprocessing
 import os
-from dataclasses import dataclass
 import random
+from dataclasses import dataclass
 from typing import Dict, List, Tuple
 
 from secretflow.kuscia.task_config import KusciaTaskConfig

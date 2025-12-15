@@ -15,6 +15,7 @@
 import json
 
 from secretflow.component.core import (
+    SGB_MODEL_MAX,
     Component,
     Context,
     DistDataType,
@@ -24,12 +25,11 @@ from secretflow.component.core import (
     IServingExporter,
     Model,
     Output,
-    register,
     Reporter,
     ServingBuilder,
-    SGB_MODEL_MAX,
     VTable,
     VTableFieldKind,
+    register,
 )
 from secretflow.data.vertical.dataframe import VDataFrame
 from secretflow.device import PYU
@@ -37,8 +37,8 @@ from secretflow.ml.boost.core.callback import TrainingCallback
 from secretflow.ml.boost.core.metric import ALL_METRICS_NAMES
 from secretflow.ml.boost.sgb_v import Sgb, SgbModel
 from secretflow.ml.boost.sgb_v.checkpoint import (
-    sgb_model_to_snapshot,
     SGBCheckpointData,
+    sgb_model_to_snapshot,
 )
 from secretflow.ml.boost.sgb_v.core.importance import (
     SUPPORTED_IMPORTANCE_DESCRIPTIONS,
@@ -46,8 +46,8 @@ from secretflow.ml.boost.sgb_v.core.importance import (
 )
 from secretflow.ml.boost.sgb_v.core.params import RegType
 from secretflow.ml.boost.sgb_v.factory.booster.global_ordermap_booster import (
-    build_checkpoint,
     GlobalOrdermapBooster,
+    build_checkpoint,
 )
 
 from .sgb import SGBExportMixin

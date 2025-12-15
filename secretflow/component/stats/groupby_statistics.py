@@ -23,10 +23,10 @@ from secretflow.component.core import (
     Input,
     Interval,
     Output,
-    register,
     Reporter,
     VTable,
     VTableFieldKind,
+    register,
 )
 from secretflow.spec.extend.groupby_aggregation_config_pb2 import (
     ColumnQuery,

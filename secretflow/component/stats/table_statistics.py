@@ -26,8 +26,8 @@ from secretflow.component.core import (
     Input,
     Interval,
     Output,
-    register,
     Reporter,
+    register,
 )
 from secretflow.stats.table_statistics import categorical_statistics, table_statistics
 

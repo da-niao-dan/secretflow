@@ -83,8 +83,8 @@ def get_obj_ref(x):
 def assert_is_fed_obj(x):
     try:
         # lazy import ray
-        import ray
         import fed as rayfed
+        import ray
     except ImportError:
         assert isinstance(
             x, sf_fed.FedObject
