@@ -22,17 +22,14 @@ from secretflow.data import FedNdarray
 from secretflow.data.split import train_test_split
 from secretflow.data.vertical import VDataFrame
 from secretflow.device import HEU
-from secretflow.ml.boost.core.callback import (
-    Checkpointing,
-    EarlyStopping,
-    EvaluationMonitor,
-)
+from secretflow.ml.boost.core.callback import Checkpointing, EvaluationMonitor
 from secretflow.ml.boost.core.metric import MetricProducer
 from secretflow.ml.boost.sgb_v.checkpoint import SGBCheckpointData
+from secretflow.ml.boost.sgb_v.core.early_stopping import EarlyStopActorCallback
 from secretflow.ml.boost.sgb_v.core.params import (
-    TreeGrowingMethod,
     default_params,
     get_unused_params,
+    TreeGrowingMethod,
     type_and_range_check,
 )
 from secretflow.ml.boost.sgb_v.factory.components.component import set_params_from_dict
@@ -202,8 +199,10 @@ class SGBFactory:
                 )
 
             assert val_label is not None
+            y = list(label.partitions.values())[0]
             callbacks.append(
-                EarlyStopping(
+                EarlyStopActorCallback(
+                    y.device,
                     self.factory_params.stopping_rounds,
                     metric_final_name,
                     data_name=data_name,

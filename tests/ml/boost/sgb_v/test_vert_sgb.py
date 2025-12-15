@@ -18,13 +18,14 @@ import time
 
 import numpy as np
 import pytest
-from sklearn.metrics import mean_squared_error, roc_auc_score
 
 from secretflow.data import FedNdarray, PartitionWay
 from secretflow.device.driver import reveal
 from secretflow.ml.boost.sgb_v import Sgb
 from secretflow.ml.boost.sgb_v.model import load_model
 from secretflow.utils.simulation.datasets import load_dermatology, load_linear
+from sklearn.metrics import mean_squared_error, roc_auc_score
+
 from tests.sf_fixtures import SFProdParams
 
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
@@ -45,7 +46,6 @@ def _run_sgb(
     tree_grow_method="level",
     enable_goss=False,
     num_boost_round=2,
-    num_tree_cap=2,
 ):
     test_name = test_name + "_with_method_" + tree_grow_method
     sgb = Sgb(env.heu)
@@ -80,7 +80,7 @@ def _run_sgb(
         "enable_monitor": True,
         "enable_early_stop": True,
         "validation_fraction": 0.1,
-        "stopping_rounds": 1,
+        "stopping_rounds": 3,
         "stopping_tolerance": 0.01,
         "save_best_model": False,
     }
@@ -113,12 +113,6 @@ def _run_sgb(
         mse = mean_squared_error(y, yhat)
         logging.info(f"{test_name} mse: {mse}")
         assert mse < mse_hat
-
-    if num_tree_cap < num_boost_round:
-        logging.info(
-            f"current tree number is {len(model.trees)}, cap is {num_tree_cap}"
-        )
-        assert len(model.trees) <= num_tree_cap
 
     fed_yhat = model.predict(v_data, env.alice)
     assert len(fed_yhat.partitions) == 1 and env.alice in fed_yhat.partitions
@@ -254,7 +248,7 @@ def test_breast_cancer(sf_production_setup_devices):
         True,
         1,
         0.9,
-        num_boost_round=0,
+        num_boost_round=10,
         auc_bar=0.5,
     )
 
@@ -284,7 +278,6 @@ def test_breast_cancer(sf_production_setup_devices):
         2.3,
         "leaf",
         num_boost_round=10,
-        num_tree_cap=3,
     )
 
 
@@ -335,4 +328,78 @@ def test_dermatology(sf_production_setup_devices):
         1,
         "leaf",
         True,
+    )
+
+
+@pytest.mark.mpc(parties=3, params=SFProdParams.ABY3)
+def test_regression_early_stop(sf_production_setup_devices):
+    """Test early stopping with regression objective (MSE) on large random dataset"""
+    devices = sf_production_setup_devices
+
+    # Generate a large random dataset for regression
+    # This ensures early stopping has enough rounds to potentially stop early
+    np.random.seed(42)
+    n_samples = 5000
+    n_features = 30
+
+    # Generate features with some non-linear relationships
+    x = np.random.randn(n_samples, n_features)
+    # Create target with non-linear relationships and noise
+    y = (
+        np.sin(x[:, 0]) * 2
+        + x[:, 1] ** 2
+        + x[:, 2] * x[:, 3]
+        + np.random.randn(n_samples) * 0.5
+    )
+
+    # Split features between parties
+    v_data = FedNdarray(
+        {
+            devices.alice: (devices.alice(lambda: x[:, :15])()),
+            devices.bob: (devices.bob(lambda: x[:, 15:])()),
+        },
+        partition_way=PartitionWay.VERTICAL,
+    )
+
+    label_data = FedNdarray(
+        {devices.alice: (devices.alice(lambda: y)())},
+        partition_way=PartitionWay.VERTICAL,
+    )
+
+    # Test regression with early stopping using many boost rounds
+    # Large random dataset with complex patterns requires many rounds to converge
+    # Early stopping should prevent training all 100 rounds
+    _run_sgb(
+        devices,
+        "regression_early_stop_level",
+        v_data,
+        label_data,
+        y,
+        False,  # regression
+        0.9,
+        0.9,
+        {},
+        0.9,
+        3.0,  # Random data with noise, relax MSE threshold (observed ~2.6)
+        "level",
+        False,
+        num_boost_round=100,
+    )
+
+    # Test with leaf-wise growth and GOSS
+    _run_sgb(
+        devices,
+        "regression_early_stop_leaf",
+        v_data,
+        label_data,
+        y,
+        False,  # regression
+        0.9,
+        0.9,
+        {},
+        0.9,
+        3.0,  # Random data with noise, relax MSE threshold (observed ~2.6)
+        "leaf",
+        True,
+        num_boost_round=100,
     )

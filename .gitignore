@@ -357,6 +357,11 @@ temp
 #temp files
 spu_*.png
 pphlo_*.png
+*method_leaf*/**/*.json
+*method_level*/**/*.json
+
 
 # temp package dir for setup.py
 temp_package/
+
+

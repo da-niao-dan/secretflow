@@ -20,6 +20,7 @@ from typing import List, Sequence, Tuple, Union
 
 import numpy as np
 
+import secretflow.distributed as sfd
 from secretflow.data import FedNdarray
 from secretflow.data.vertical import VDataFrame
 from secretflow.device import HEU, PYUObject, wait
@@ -32,9 +33,9 @@ from secretflow.ml.boost.core.callback import (
 from secretflow.ml.boost.core.data_preprocess import prepare_dataset
 from secretflow.ml.boost.core.metric import Metric
 from secretflow.ml.boost.sgb_v.checkpoint import (
-    SGBCheckpointData,
     checkpoint_data_to_model_and_train_state,
     sgb_model_to_checkpoint_data,
+    SGBCheckpointData,
 )
 from secretflow.ml.boost.sgb_v.core.params import default_params
 
@@ -141,8 +142,6 @@ class GlobalOrdermapBooster(Composite, CallBackCompatibleModel):
         checkpoint_data: SGBCheckpointData = None,
         sample_weight: Union[FedNdarray, VDataFrame] = None,
     ) -> SgbModel:
-        import secretflow.distributed as sfd
-
         checkpoint_model = None
         history = None
         if checkpoint_data is not None:
@@ -260,7 +259,6 @@ class GlobalOrdermapBooster(Composite, CallBackCompatibleModel):
         assumed prediction is used exactly once per boosting round
         used cache to avoid repeated computation
         """
-        import secretflow.distributed as sfd
 
         model = self.components.model_builder.finish()
         if sfd.in_ic_mode():

@@ -51,6 +51,7 @@ dependencies = [
 dev = [
     "pytest==8.4.1",
     "build==1.2.2",
+    "black",
     "matplotlib",
     "statsmodels==0.13.2",
     "polars==0.19.3",

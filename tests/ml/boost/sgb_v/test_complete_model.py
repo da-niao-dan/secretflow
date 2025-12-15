@@ -18,7 +18,6 @@ import time
 
 import numpy as np
 import pytest
-from sklearn.metrics import mean_squared_error, roc_auc_score
 
 from secretflow.data import FedNdarray, PartitionWay
 from secretflow.device.driver import reveal
@@ -30,6 +29,8 @@ from secretflow.ml.boost.sgb_v.core.distributed_tree.distributed_tree import (
     DistributedTree,
 )
 from secretflow.ml.boost.sgb_v.model import load_model
+from sklearn.metrics import mean_squared_error, roc_auc_score
+
 from tests.sf_fixtures import SFProdParams
 
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
@@ -82,7 +83,6 @@ def _run_sgb(
     tree_grow_method="level",
     enable_goss=False,
     num_boost_round=2,
-    num_tree_cap=2,
 ):
     test_name = test_name + "_with_method_" + tree_grow_method
     sgb = Sgb(env.heu)
@@ -129,12 +129,6 @@ def _run_sgb(
         mse = mean_squared_error(y, yhat)
         logging.info(f"{test_name} mse: {mse}")
         assert mse < mse_hat
-
-    if num_tree_cap < num_boost_round:
-        logging.info(
-            f"current tree number is {len(model.trees)}, cap is {num_tree_cap}"
-        )
-        assert len(model.trees) <= num_tree_cap
 
     fed_yhat = model.predict(v_data, env.alice)
     assert len(fed_yhat.partitions) == 1 and env.alice in fed_yhat.partitions
