@@ -163,7 +163,8 @@ class EarlyStopRecord:
             self.best_iteration = iteration
             self.current_rounds = 0
         else:
-            # No improvement - increment counter
+            # No improvement - keep the previous best score
+            self.best_scores.append(self.best_scores[-1])
             self.current_rounds += 1
 
         # Check if we should stop

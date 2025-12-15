@@ -874,6 +874,15 @@ wheels = [
 ]
 
 [[package]]
+name = "isort"
+version = "5.13.2"
+source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
+sdist = { url = "https://pypi.tuna.tsinghua.edu.cn/packages/87/f9/c1eb8635a24e87ade2efce21e3ce8cd6b8630bb685ddc9cdaca1349b2eb5/isort-5.13.2.tar.gz", hash = "sha256:48fdfcb9face5d58a4f6dde2e72a1fb8dcaf8ab26f95ab49fab84c2ddefb0109", size = 175303, upload-time = "2023-12-13T20:37:26.124Z" }
+wheels = [
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/d1/b3/8def84f539e7d2289a02f0524b944b15d7c75dab7628bedf1c4f0992029c/isort-5.13.2-py3-none-any.whl", hash = "sha256:8ca5e72a8d85860d5a3fa69b8745237f2939afe12dbf656afbcb47fe72d947a6", size = 92310, upload-time = "2023-12-13T20:37:23.244Z" },
+]
+
+[[package]]
 name = "itsdangerous"
 version = "2.2.0"
 source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
@@ -2341,6 +2350,7 @@ dev = [
     { name = "black" },
     { name = "build" },
     { name = "filelock" },
+    { name = "isort" },
     { name = "liac-arff" },
     { name = "matplotlib" },
     { name = "polars" },
@@ -2370,12 +2380,13 @@ requires-dist = [
     { name = "aiobotocore", specifier = "==2.17.0" },
     { name = "aiohttp", specifier = ">=3.9.4,<4" },
     { name = "autodocsumm", marker = "extra == 'doc'", specifier = "~=0.2.14" },
-    { name = "black", marker = "extra == 'dev'" },
+    { name = "black", marker = "extra == 'dev'", specifier = "==25.12.0" },
     { name = "build", marker = "extra == 'dev'", specifier = "==1.2.2" },
     { name = "click" },
     { name = "duckdb", specifier = "==1.0.0" },
     { name = "filelock", marker = "extra == 'dev'", specifier = "==3.18.0" },
     { name = "grpcio", specifier = ">=1.56.2" },
+    { name = "isort", marker = "extra == 'dev'", specifier = "==5.13.2" },
     { name = "jax", extras = ["cpu"], specifier = ">=0.4.16,<=0.4.26" },
     { name = "jaxlib", specifier = ">=0.4.16,<=0.4.26" },
     { name = "kuscia", specifier = "==0.0.3b0" },

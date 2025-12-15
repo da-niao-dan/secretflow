@@ -363,5 +363,5 @@ pphlo_*.png
 
 # temp package dir for setup.py
 temp_package/
-
-
+.vscode/
+.pre-commit-config.yaml
