@@ -14,11 +14,11 @@
 
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
+from typing import List, Optional, Tuple
 
 import numpy as np
 
-from secretflow.device import proxy, PYUObject
+from secretflow.device import PYUObject, proxy
 
 
 @proxy(PYUObject)
@@ -99,7 +99,9 @@ class EarlyStopRecord:
         bool
             True if metric should be maximized, False otherwise.
         """
-        maximize_metrics = ("roc_auc", "auc", "accuracy", "f1", "precision", "recall")
+        # Align with base implementation in callback.py
+        # Only roc_auc should be maximized; mse, rmse, and tweedie metrics should be minimized
+        maximize_metrics = ("roc_auc",)
         return any(metric_name.startswith(x) for x in maximize_metrics)
 
     def _is_improvement(self, new_score: float, best_score: float) -> bool:
