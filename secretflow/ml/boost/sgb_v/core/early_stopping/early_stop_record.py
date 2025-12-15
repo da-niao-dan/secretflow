@@ -77,6 +77,14 @@ class EarlyStopRecord:
         if self.min_delta < 0:
             raise ValueError("min_delta must be greater or equal to 0")
 
+        # Infer maximize setting if not explicitly provided
+        if self.maximize is None:
+            if self.metric_name is not None:
+                self.maximize = self._infer_maximize(self.metric_name)
+            else:
+                # Default to minimize if we can't infer
+                self.maximize = False
+
     def _infer_maximize(self, metric_name: str) -> bool:
         """
         Infer whether to maximize based on metric name.
@@ -110,12 +118,6 @@ class EarlyStopRecord:
         bool
             True if new_score is an improvement, False otherwise.
         """
-        if self.maximize is None and self.metric_name is not None:
-            self.maximize = self._infer_maximize(self.metric_name)
-        elif self.maximize is None:
-            # Default to minimize if we can't infer
-            self.maximize = False
-
         if self.maximize:
             # For maximization: new score should be greater than best + min_delta
             return np.greater(new_score - self.min_delta, best_score)
@@ -123,7 +125,9 @@ class EarlyStopRecord:
             # For minimization: new score should be less than best - min_delta
             return np.greater(best_score - self.min_delta, new_score)
 
-    def add_score(self, score: float, iteration: int) -> bool:
+    def add_score(
+        self, score: float, iteration: int
+    ) -> Tuple[bool, int, Optional[float]]:
         """
         Add a new score and update early stopping state.
 
@@ -136,8 +140,8 @@ class EarlyStopRecord:
 
         Returns
         -------
-        bool
-            True if training should stop, False otherwise.
+        Tuple[bool, int, Optional[float]]
+            A tuple containing: (if training should stop, best iteration, best score).
         """
         # Add to complete history
         self.history.append(score)
@@ -149,7 +153,7 @@ class EarlyStopRecord:
             self.best_iteration = iteration
             self.current_rounds = 0
             self.should_stop = False
-            return False
+            return False, self.best_iteration, self.best_score
 
         # Check if this is an improvement
         if self._is_improvement(score, self.best_scores[-1]):
@@ -165,10 +169,10 @@ class EarlyStopRecord:
         # Check if we should stop
         if self.current_rounds >= self.rounds:
             self.should_stop = True
-            return True
+            return True, self.best_iteration, self.best_score
 
         self.should_stop = False
-        return False
+        return False, self.best_iteration, self.best_score
 
     def get_best_iteration(self) -> int:
         """

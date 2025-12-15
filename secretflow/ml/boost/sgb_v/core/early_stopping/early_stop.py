@@ -129,15 +129,10 @@ class EarlyStopActorCallback(EarlyStopping):
         if isinstance(score, tuple):
             score = score[0]
 
-        # Call record methods directly since record is a PYUObject proxy
-        should_stop = self.record.add_score(float(score), epoch)
-        best_iteration = self.record.get_best_iteration()
-        best_score = self.record.get_best_score()
-
-        # Reveal the results
-        should_stop = reveal(should_stop)
-        best_iteration = reveal(best_iteration)
-        best_score = reveal(best_score)
+        # Call record method and reveal the results in a single round trip
+        should_stop, best_iteration, best_score = reveal(
+            self.record.add_score(float(score), epoch)
+        )
 
         # Update model with best iteration info
         model.set_best_iteration_score(
